@@ -1,5 +1,7 @@
+import { parseCoderWorkspaceUrl } from "./coder-cloud-agent.js";
+
 /**
- * Empty / unknown / cursor-without-key becomes none so the API still boots and
+ * Empty / unknown / a provider without its connection becomes none so the API still boots and
  * cloud-agent tools stay uninjected.
  */
 export function resolveCloudAgentProvider(source: NodeJS.ProcessEnv = process.env): string {
@@ -11,6 +13,13 @@ export function resolveCloudAgentProvider(source: NodeJS.ProcessEnv = process.en
   if (requested === "cursor") {
     return optional(source.CURSOR_API_KEY) && optional(source.CLOUD_AGENT_SPACE_ID)
       ? "cursor"
+      : "none";
+  }
+  if (requested === "coder") {
+    return parseCoderWorkspaceUrl(source.CLOUD_AGENT_URL) &&
+      optional(source.CLOUD_AGENT_API_KEY) &&
+      optional(source.CLOUD_AGENT_SPACE_ID)
+      ? "coder"
       : "none";
   }
   // Soft-fall: do not throw at API boot for typos / future vendor names.

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { CloudAgentProvider } from "@rakazo/adapter-kit";
 import { EmulatorCloudAgentProvider } from "./cloud-agent-emulator.js";
 import { resolveCloudAgentProvider } from "./cloud-agent-provider-env.js";
+import { CoderCloudAgentProvider } from "./coder-cloud-agent.js";
 import { CursorCloudAgentProvider } from "./cursor-cloud-agent.js";
 
 /** The composition root binds a credential to exactly one authorized Space. */
@@ -30,6 +31,19 @@ export function createCloudAgentConnection(
   const kind = resolveCloudAgentProvider(source);
   if (kind === "emulator") {
     return { provider: new EmulatorCloudAgentProvider(), key: "emulator" };
+  }
+  if (kind === "coder") {
+    const workspaceUrl = source.CLOUD_AGENT_URL!.trim();
+    return {
+      provider: new CoderCloudAgentProvider({
+        workspaceUrl,
+        token: source.CLOUD_AGENT_API_KEY!,
+      }),
+      // Bound to the workspace, not the token: Coder tokens expire and get replaced,
+      // and the agents live in the workspace whichever token reaches them.
+      key: `coder:${createHash("sha256").update(workspaceUrl).digest("hex")}`,
+      spaceId: source.CLOUD_AGENT_SPACE_ID!.trim(),
+    };
   }
   if (kind !== "cursor") return null;
   const apiKey = source.CURSOR_API_KEY!.trim();

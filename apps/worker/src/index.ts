@@ -297,6 +297,7 @@ async function main() {
       deploymentModelKey ?? "",
       process.env.COMPOSIO_API_KEY ?? "",
       process.env.CURSOR_API_KEY ?? "",
+      process.env.CLOUD_AGENT_API_KEY ?? "",
       process.env.TYPESAFE_API_KEY ?? "",
     ].filter(Boolean),
     secretStore: secrets,

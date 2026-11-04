@@ -78,11 +78,18 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+      # Registry names must be lowercase and expressions cannot lowercase, so an owner such as
+      # ExampleOwner needs this. A fork can publish only to its own namespace; no credential can
+      # redirect this value.
+      - id: image
+        env:
+          NAME: ${{ matrix.name }}
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${NAME}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          images: ${{ steps.image.outputs.name }}
           tags: type=sha,prefix=sha-
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -139,6 +146,13 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+      # Registry names must be lowercase and expressions cannot lowercase, so an owner such as
+      # ExampleOwner needs this. A fork can publish only to its own namespace; no credential can
+      # redirect this value.
+      - id: image
+        env:
+          NAME: ${{ matrix.name }}
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${NAME}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
@@ -150,7 +164,7 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           # Labels only; publication applies tags after validation.
-          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          images: ${{ steps.image.outputs.name }}
           tags: type=sha,prefix=sha-
       - id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
@@ -159,10 +173,9 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
-          # A fork can publish only to its own namespace; no credential can redirect this value.
           # The app's filesystem is also written locally so the credential scan needs no registry pull.
           outputs: |
-            type=image,name=ghcr.io/${{ github.repository }}/${{ matrix.name }},push-by-digest=true,name-canonical=true,push=true
+            type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
             ${{ matrix.name == 'app' && 'type=tar,dest=/tmp/rootfs.tar' || '' }}
           # GET /health can report the exact source commit without a deployment-supplied override.
           build-args: ${{ matrix.name == 'app' && format('GIT_SHA={0}', github.sha) || '' }}
@@ -227,6 +240,13 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+      # Registry names must be lowercase and expressions cannot lowercase, so an owner such as
+      # ExampleOwner needs this. A fork can publish only to its own namespace; no credential can
+      # redirect this value.
+      - id: image
+        env:
+          NAME: ${{ matrix.name }}
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${NAME}" >> "$GITHUB_OUTPUT"
       - uses: depot/setup-action@91bc8495a33ebfc504ffc89e5674379ccf23c29c # v1.7.2
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
@@ -238,7 +258,7 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           # Labels only; publication applies tags after validation.
-          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          images: ${{ steps.image.outputs.name }}
           tags: type=sha,prefix=sha-
       - id: build
         uses: depot/build-push-action@98e78adca7817480b8185f474a400b451d74e287 # v1.18.0
@@ -249,8 +269,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           labels: ${{ steps.meta.outputs.labels }}
-          # A fork can publish only to its own namespace; no credential can redirect this value.
-          outputs: type=image,name=ghcr.io/${{ github.repository }}/${{ matrix.name }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           build-args: ${{ matrix.name == 'app' && format('GIT_SHA={0}', github.sha) || '' }}
           provenance: mode=max
           sbom: true
@@ -264,7 +283,7 @@ jobs:
       - name: Check the app image ships no credentials
         if: matrix.name == 'app' && steps.build.outcome == 'success'
         env:
-          IMAGE: ghcr.io/${{ github.repository }}/app@${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
         # Exporting a filesystem needs no emulation, so one runner checks both platforms.
         run: |
           set -euo pipefail
@@ -286,7 +305,7 @@ jobs:
       - if: steps.build.outcome == 'success'
         uses: ./.github/actions/publish-image
         with:
-          image: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          image: ${{ steps.image.outputs.name }}
           digests-directory: /tmp/digests
 
   publish:
@@ -317,6 +336,13 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+      # Registry names must be lowercase and expressions cannot lowercase, so an owner such as
+      # ExampleOwner needs this. A fork can publish only to its own namespace; no credential can
+      # redirect this value.
+      - id: image
+        env:
+          NAME: ${{ matrix.name }}
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${NAME}" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: digest-${{ matrix.name }}-*
@@ -329,5 +355,5 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/publish-image
         with:
-          image: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          image: ${{ steps.image.outputs.name }}
           digests-directory: /tmp/digests

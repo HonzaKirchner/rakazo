@@ -631,6 +631,8 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   const cloudAgent = createCloudAgentConnection({
     CLOUD_AGENT_PROVIDER: env.cloudAgentProvider,
     CURSOR_API_KEY: env.cursorApiKey,
+    CLOUD_AGENT_URL: env.cloudAgentUrl,
+    CLOUD_AGENT_API_KEY: env.cloudAgentApiKey,
     CLOUD_AGENT_SPACE_ID: env.cloudAgentSpaceId,
   });
   const paymentWallet = await createPaymentWalletProvider({

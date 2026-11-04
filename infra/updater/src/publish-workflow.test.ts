@@ -184,6 +184,16 @@ describe("server image publish workflow", () => {
     }
   });
 
+  it("names every image from the lowercased repository", () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal expression must not return
+    expect(workflowText).not.toContain("ghcr.io/${{ github.repository }}");
+    for (const job of ["validate", "build", "build-depot", "publish"] as const) {
+      const step = workflow.jobs[job].steps.find((item) => item.id === "image");
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal bash lowercase expansion
+      expect(step?.run, job).toContain("ghcr.io/${GITHUB_REPOSITORY,,}/");
+    }
+  });
+
   it("keeps pull requests read-only and every action pinned to a commit", () => {
     const validate = workflow.jobs.validate;
     expect(validate.if).toBe("github.event_name == 'pull_request'");

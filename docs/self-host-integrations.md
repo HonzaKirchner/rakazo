@@ -200,7 +200,7 @@ the Integrations screen are a separate connection from this messaging surface.
 
 Cloud agents delegate a repository task to a hosted coding agent and track its result in the bot's chat. They are separate from the bot computer and its in-turn subagents. Web, Electron, and mobile show the same status and pull-request link.
 
-The default is `CLOUD_AGENT_PROVIDER=none`. Core workflows do not require Cursor or any other hosted coding provider.
+The default is `CLOUD_AGENT_PROVIDER=none`. Core workflows do not require Cursor, Coder or any other coding provider.
 
 ### Enable Cursor
 
@@ -217,6 +217,29 @@ The key and explicit Space ID are both required. Use a credential whose connecte
 The tools are `cloud_agent_launch`, `cloud_agent_status`, `cloud_agent_reply`, and `cloud_agent_cancel`. All three mutations participate in the existing action-approval rules and auto-review policy. As with other consequential tools, an empty rule set and disabled auto-review permit execution by default.
 
 Launch accepts a prompt, optional repository, images, and `openPr`. Raw environment variables are intentionally unsupported: passing secrets through model-generated tool arguments would persist them in ordinary history. Configure remote environment secrets directly with the provider.
+
+### Enable Coder
+
+Runs Claude Code in one of your own Coder workspaces, so the agent uses whatever Claude Code login the workspace has. The workspace runs a Claude Code runner service and exposes it as a path-based app with the slug `claude-code-runner`, shared with the owner only. The runner serves this JSON API; every response is `{ id, title, status, runId, branch?, prUrl? }`, and errors are `{ code: "invalid" | "not_found" | "busy" }`:
+
+| Request | Effect |
+| --- | --- |
+| `PUT /agents/:id` | Creates the agent and its first run. Repeating it returns the existing agent. |
+| `GET /agents/:id` | Returns the latest run. |
+| `GET /agents/:id/runs/:runId` | Returns that run. |
+| `POST /agents/:id/runs` | Starts a follow-up; `busy` while a run is going. |
+| `POST /agents/:id/runs/:runId/cancel` | Answers once the run has stopped. |
+
+Then configure the API and worker:
+
+```dotenv
+CLOUD_AGENT_PROVIDER=coder
+CLOUD_AGENT_SPACE_ID=example-space-id
+CLOUD_AGENT_URL=https://coder.example.com/@example-owner/example-workspace
+CLOUD_AGENT_API_KEY=replace-with-a-coder-token
+```
+
+`CLOUD_AGENT_URL` is the workspace's page in Coder, and the token must belong to the workspace owner. A stopped workspace is started on the next poll. Agents are bound to the workspace rather than the token, so an expired token can be replaced without losing them.
 
 ### Recovery
 

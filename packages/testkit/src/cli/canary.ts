@@ -35,6 +35,7 @@ async function main() {
       CLOUD_AGENT_PROVIDER: "emulator",
       COMPOSIO_API_KEY: "",
       CURSOR_API_KEY: "",
+      CLOUD_AGENT_API_KEY: "",
       MAX_TOOL_CALLS_PER_TURN: "24",
       BETTER_AUTH_SECRET: "provider-canary-auth-secret-at-least-32-characters",
       ENCRYPTION_KEY: "provider-canary-encryption-key-at-least-32-characters",

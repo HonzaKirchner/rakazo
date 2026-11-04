@@ -537,6 +537,7 @@ async function main() {
       LARK_APP_ID: "",
       SENDBLUE_API_KEY_ID: "",
       CURSOR_API_KEY: "",
+      CLOUD_AGENT_API_KEY: "",
       CLOUD_AGENT_PROVIDER: "",
       MODEL_API_KEY: "",
       // A developer .env with Stripe keys would put the disposable app behind billing.
