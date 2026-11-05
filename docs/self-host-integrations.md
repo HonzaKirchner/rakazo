@@ -229,16 +229,18 @@ Launch accepts a prompt, optional repository, images, and `openPr`. Raw environm
 
 ### Enable Coder
 
-Runs Claude Code in one of your own Coder workspaces, so the agent uses whatever Claude Code login the workspace has. The workspace runs [claude-relay](https://github.com/HonzaKirchner/claude-relay) and exposes it as an app with the slug `claude`, shared with the owner only. Rakazo reaches it on Coder's path route (`/@owner/workspace/apps/claude/...`), which Coder serves for subdomain apps too unless path apps are disabled. The runner serves this JSON API; every response is `{ id, title, status, runId, branch?, prUrl? }`, and errors are `{ code: "invalid" | "not_found" | "busy" }`:
+Runs Claude Code in one of your own Coder workspaces, so the agent uses whatever Claude Code login the workspace has. The workspace runs [claude-relay](https://github.com/HonzaKirchner/claude-relay) and exposes it as an app with the slug `claude`, shared with the owner only. Rakazo reaches it on Coder's path route (`/@owner/workspace/apps/claude/...`), which Coder serves for subdomain apps too unless path apps are disabled. The runner serves this JSON API; every response is `{ id, title, status, runId, branch?, prUrl?, summary? }`, and errors are `{ code: "invalid" | "not_found" | "busy" }`:
 
 | Request | Effect |
 | --- | --- |
 | `PUT /agents/:id` | Creates the agent and its first run. Repeating it returns the existing agent. |
 | `GET /agents/:id` | Returns the latest run. |
 | `GET /agents/:id/runs/:runId` | Returns that run. |
-| `POST /agents/:id/runs` | Starts a follow-up; `busy` while a run is going. |
+| `POST /agents/:id/runs` | Starts a follow-up. |
 | `POST /agents/:id/runs/:runId/cancel` | Answers once the run has stopped. |
 | `GET /ui/conversations/:id` | The agent's page, which each agent links to. |
+
+Every agent works in the workspace's one checkout on its own branch, so one run goes at a time across all agents. A launch or follow-up is refused with `busy`, creating nothing, while any agent's run is going (`reason: "locked"`, with the `conversation` whose run it is) or while the checkout has uncommitted changes that no run of that agent made (`reason: "dirty"`, with the `branch` it is on, for someone to commit, stash or discard in the workspace). Rakazo keeps the refused agent pending and resends it later, so a launch waits for the running agent rather than failing; only a follow-up refused by its own agent's run is observed instead of resent, since it may already be that run. The launch's `repository` is accepted but ignored: the work happens in the workspace's checkout.
 
 Then configure the API and worker:
 

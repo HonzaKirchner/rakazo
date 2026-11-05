@@ -16,6 +16,10 @@ const APP_SLUG = "claude";
 /** A workspace start takes a minute or two; there is no point asking much sooner. */
 const START_RETRY_MS = 15_000;
 const STARTABLE = new Set(["stopped", "failed", "canceled"]);
+/** A refused launch or follow-up is resent once the run holding the checkout is likely over. */
+const LOCKED_RETRY_MS = 30_000;
+/** A dirty checkout waits for a person to deal with it, so asking often buys nothing. */
+const DIRTY_RETRY_MS = 5 * 60_000;
 
 const agentSchema = z.object({
   id: z.string().min(1),
@@ -95,19 +99,21 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
   ): Promise<CloudAgentHandle> {
     // The runner returns the existing agent for a repeated id, so a lost response is safe to resend.
     const id = coderAgentId(request.idempotencyKey);
-    return this.snapshot(
-      await this.app(
-        "PUT",
-        `/agents/${id}`,
-        {
-          prompt: request.prompt,
-          ...(request.images?.length ? { images: request.images } : {}),
-          ...(request.repository ? { repository: request.repository } : {}),
-          ...(request.openPr !== undefined ? { openPr: request.openPr } : {}),
-        },
-        request.signal ?? context.signal,
-      ),
+    const response = await this.app(
+      "PUT",
+      `/agents/${id}`,
+      {
+        prompt: request.prompt,
+        ...(request.images?.length ? { images: request.images } : {}),
+        ...(request.repository ? { repository: request.repository } : {}),
+        ...(request.openPr !== undefined ? { openPr: request.openPr } : {}),
+      },
+      request.signal ?? context.signal,
     );
+    // A refused launch creates nothing: the checkout is taken by another agent's run, or
+    // has changes a person must deal with. Either clears without the caller doing anything.
+    if (response instanceof Busy) throw response.retryLater();
+    return this.snapshot(response);
   }
 
   async get(id: string, context: AdapterContext, runId?: string): Promise<CloudAgentSnapshot> {
@@ -138,9 +144,14 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
       },
       signal,
     );
-    // Follow-ups have no idempotency key. A busy agent may already be running an
-    // earlier attempt of this one, so the caller must observe the run, not resend.
-    if (response === BUSY) throw new Error("Cloud agent is busy with another run");
+    if (response instanceof Busy) {
+      // Another agent's run holds the checkout, or it is dirty: nothing was accepted.
+      if (response.dirty || (response.holder !== undefined && response.holder !== id))
+        throw response.retryLater();
+      // This agent's own run is going. Follow-ups have no idempotency key, so it may be
+      // an earlier attempt of this one: the caller must observe the run, not resend.
+      throw new Error("Cloud agent is busy with another run");
+    }
     return this.snapshot(response);
   }
 
@@ -187,7 +198,7 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     const code = json && typeof json === "object" && "code" in json ? json.code : undefined;
     if (code === "not_found") throw new CloudAgentRequestRejected("not_found");
     if (code === "invalid") throw new CloudAgentRequestRejected();
-    if (code === "busy") return BUSY;
+    if (code === "busy") return Busy.from(json as Record<string, unknown>);
     if (typeof code === "string") throw new Error(`Cloud agent request failed (${status})`);
     // Coder answered for an app it could not reach: the workspace is stopped or still starting.
     return this.wake(signal);
@@ -262,7 +273,26 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
   }
 }
 
-const BUSY = Symbol("busy");
+/** The runner refused to start a run: it has one checkout, so one run goes at a time. */
+class Busy {
+  private constructor(
+    /** The agent whose run holds the checkout. Absent when it is dirty, or from an older runner. */
+    readonly holder: string | undefined,
+    /** The checkout has uncommitted changes that no run of this agent made. */
+    readonly dirty: boolean,
+  ) {}
+
+  static from(body: Record<string, unknown>) {
+    return new Busy(
+      typeof body.conversation === "string" ? body.conversation : undefined,
+      body.reason === "dirty",
+    );
+  }
+
+  retryLater() {
+    return new CloudAgentRetryLater("unavailable", this.dirty ? DIRTY_RETRY_MS : LOCKED_RETRY_MS);
+  }
+}
 
 export function coderAgentId(key: string) {
   return createHash("sha256").update(key).digest("hex").slice(0, 32);
