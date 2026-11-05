@@ -23,6 +23,9 @@ const STATUS_STYLE = {
   expired: { icon: Clock, tile: "bg-muted text-muted-foreground", bar: "bg-muted-foreground/40" },
 } as const;
 
+// The share of the line that fades at its end while the title overflows (mask from 85%).
+const EDGE_FADE = 0.15;
+
 /** One line of text that scrolls to show its hidden end while the card is hovered. */
 function MarqueeLine({ children, className }: { children: ReactNode; className?: string }) {
   const outer = useRef<HTMLSpanElement>(null);
@@ -33,8 +36,10 @@ function MarqueeLine({ children, className }: { children: ReactNode; className?:
     const text = inner.current;
     if (!box || !text) return;
     const measure = () => {
-      const overflow = Math.max(0, text.scrollWidth - box.clientWidth);
-      setShift(getComputedStyle(text).direction === "rtl" ? overflow : -overflow);
+      const overflow = text.scrollWidth - box.clientWidth;
+      // Scroll the end clear of the edge's fade, so the last word is seen whole.
+      const distance = overflow > 0 ? overflow + box.clientWidth * EDGE_FADE : 0;
+      setShift(getComputedStyle(text).direction === "rtl" ? distance : -distance);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -75,21 +80,23 @@ const openAgents = new Set<string>();
 
 // The reply and the launch details unfold together, at one pace.
 const EXPAND_MOTION = "duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]";
-// Two lines of the reply's text (14.5px at 1.5 line height) while the card is folded.
-const REPLY_PREVIEW_HEIGHT = 2 * 14.5 * 1.5;
+// Two lines of the preview's text (14.5px at 1.5 line height) while the card is folded.
+const PREVIEW_HEIGHT = 2 * 14.5 * 1.5;
 
 /**
- * The agent's final reply. Folded, its first two lines fade out and a click opens the card;
- * opening grows it to its full height.
+ * The agent's final reply, or its prompt until there is one. Folded, its first two lines fade
+ * out and a click opens the card; opening grows it to its full height.
  */
-function AgentReply({
+function CardPreview({
   open,
   onOpen,
+  testId,
   children,
 }: {
   open: boolean;
   onOpen: () => void;
-  children: string;
+  testId: string;
+  children: ReactNode;
 }) {
   const content = useRef<HTMLDivElement>(null);
   const [fullHeight, setFullHeight] = useState<number>();
@@ -108,12 +115,12 @@ function AgentReply({
       observer.disconnect();
     };
   }, []);
-  const overflows = (fullHeight ?? 0) > REPLY_PREVIEW_HEIGHT;
+  const overflows = (fullHeight ?? 0) > PREVIEW_HEIGHT;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the title button opens the card for keyboard and screen readers.
     // biome-ignore lint/a11y/useKeyWithClickEvents: as above.
     <div
-      data-testid="cloud-agent-summary"
+      data-testid={testId}
       onClick={open ? undefined : onOpen}
       className={cn(
         "relative mx-4 mb-4 overflow-hidden",
@@ -121,16 +128,14 @@ function AgentReply({
         !open && "cursor-pointer",
       )}
       style={{
-        height: open
-          ? fullHeight
-          : Math.min(fullHeight ?? REPLY_PREVIEW_HEIGHT, REPLY_PREVIEW_HEIGHT),
+        height: open ? fullHeight : Math.min(fullHeight ?? PREVIEW_HEIGHT, PREVIEW_HEIGHT),
       }}
     >
       <div
         ref={content}
         className={cn("text-[14.5px] leading-[1.5]", !open && "pointer-events-none")}
       >
-        <ChatMarkdown>{children}</ChatMarkdown>
+        {children}
       </div>
       {overflows ? (
         // Rides the bottom edge as the reply grows, dissolving before the reply settles.
@@ -161,6 +166,10 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   const prHref = cloudAgentHttpsUrl(block.prUrl);
   const agentHref = cloudAgentHttpsUrl(block.url);
   const running = block.status === "running";
+  // The prompt shows as the preview until there is a reply, so it only repeats beside one.
+  const hasDetails = Boolean(
+    (block.prompt && block.summary) || block.repository || block.openPr || block.imageCount,
+  );
   const status = STATUS_STYLE[block.status];
   const StatusIcon = status.icon;
   const statusLabel =
@@ -253,50 +262,59 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
           ) : null}
         </div>
         {block.summary ? (
-          <AgentReply open={open} onOpen={() => toggle(true)}>
-            {block.summary}
-          </AgentReply>
+          <CardPreview open={open} onOpen={() => toggle(true)} testId="cloud-agent-summary">
+            <ChatMarkdown>{block.summary}</ChatMarkdown>
+          </CardPreview>
+        ) : block.prompt ? (
+          // Until the agent replies, its prompt says what it is working on.
+          <CardPreview open={open} onOpen={() => toggle(true)} testId="cloud-agent-prompt">
+            <p className="whitespace-pre-wrap break-words text-foreground/80" dir="auto">
+              {block.prompt}
+            </p>
+          </CardPreview>
         ) : null}
-        <CollapsibleContent className={EXPAND_MOTION}>
-          {/* Padding lives inside the panel so it folds all the way to nothing. */}
-          <div className="flex flex-col gap-3 border-t border-border px-4 pt-3 pb-4">
-            <dl className="grid gap-2 text-[13px]">
-              {block.prompt ? (
-                <div>
-                  <dt className="text-muted-foreground">
-                    <Trans>Prompt</Trans>
-                  </dt>
-                  <dd className="whitespace-pre-wrap break-words" dir="auto">
-                    {block.prompt}
-                  </dd>
-                </div>
-              ) : null}
-              {block.repository ? (
-                <div>
-                  <dt className="text-muted-foreground">
-                    <Trans>Repository</Trans>
-                  </dt>
-                  <dd className="font-mono text-[12px] break-all">{block.repository}</dd>
-                </div>
-              ) : null}
-              {block.openPr ? (
-                <div>
-                  <dt className="text-muted-foreground">
-                    <Trans>Opens a pull request</Trans>
-                  </dt>
-                </div>
-              ) : null}
-              {block.imageCount ? (
-                <div>
-                  <dt className="text-muted-foreground">
-                    <Trans>Images</Trans>
-                  </dt>
-                  <dd>{block.imageCount}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </div>
-        </CollapsibleContent>
+        {hasDetails ? (
+          <CollapsibleContent className={EXPAND_MOTION}>
+            {/* Padding lives inside the panel so it folds all the way to nothing. */}
+            <div className="flex flex-col gap-3 border-t border-border px-4 pt-3 pb-4">
+              <dl className="grid gap-2 text-[13px]">
+                {block.prompt && block.summary ? (
+                  <div>
+                    <dt className="text-muted-foreground">
+                      <Trans>Prompt</Trans>
+                    </dt>
+                    <dd className="whitespace-pre-wrap break-words" dir="auto">
+                      {block.prompt}
+                    </dd>
+                  </div>
+                ) : null}
+                {block.repository ? (
+                  <div>
+                    <dt className="text-muted-foreground">
+                      <Trans>Repository</Trans>
+                    </dt>
+                    <dd className="font-mono text-[12px] break-all">{block.repository}</dd>
+                  </div>
+                ) : null}
+                {block.openPr ? (
+                  <div>
+                    <dt className="text-muted-foreground">
+                      <Trans>Opens a pull request</Trans>
+                    </dt>
+                  </div>
+                ) : null}
+                {block.imageCount ? (
+                  <div>
+                    <dt className="text-muted-foreground">
+                      <Trans>Images</Trans>
+                    </dt>
+                    <dd>{block.imageCount}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </div>
+          </CollapsibleContent>
+        ) : null}
       </Collapsible>
     </div>
   );

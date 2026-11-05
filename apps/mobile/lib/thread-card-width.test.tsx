@@ -56,6 +56,7 @@ vi.mock("react-native", async () => {
       );
     };
   return {
+    ActivityIndicator: element("progress"),
     Alert: { alert: vi.fn() },
     Appearance: { getColorScheme: () => "light", addChangeListener: () => ({ remove() {} }) },
     Linking: { openURL: vi.fn().mockResolvedValue(undefined) },
@@ -307,6 +308,13 @@ describe("thread cards", () => {
     expect(styleOf(container.firstElementChild)).toMatchObject({ width: "100%", borderRadius: 20 });
     expect(container.querySelector("[data-symbol='chevron.down']")).toBeNull();
     expect(container.querySelector('[role="link"]')).not.toBeNull();
+  });
+
+  it("shows a running cloud agent's prompt while it has no reply", () => {
+    renderBlocks([
+      { ...cloud, agentId: "cloud-running", status: "running", prompt: "Fix the footer typo" },
+    ]);
+    expect(container.textContent).toContain("Fix the footer typo");
   });
 
   it("opens a cloud agent's pull request straight from the folded card", () => {

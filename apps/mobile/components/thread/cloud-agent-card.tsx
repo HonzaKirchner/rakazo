@@ -101,7 +101,12 @@ export function CloudAgentCard({
           : tokens.mutedForeground;
   const prHref = cloudAgentHttpsUrl(special.prUrl);
   const agentHref = cloudAgentHttpsUrl(special.url);
-  const preview = !open && special.summary ? plainTextFromMarkdown(special.summary) : "";
+  // Folded, the start of the reply, or of the prompt until there is a reply.
+  const preview = open
+    ? ""
+    : special.summary
+      ? plainTextFromMarkdown(special.summary)
+      : (special.prompt ?? "");
   const label = { color: tokens.mutedForeground, ...typeScale.caption };
   const value = { color: tokens.cardForeground, marginTop: 2, ...typeScale.secondary };
   const detailsStyle = {
