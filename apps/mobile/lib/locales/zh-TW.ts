@@ -850,6 +850,11 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
     "貼上你伺服器的 OpenAI 相容地址。如有需要，Rakazo 會自動補上 /v1。",
   Paused: "已暫停",
   Prompt: "提示詞",
+  Images: "圖片",
+  "Open cloud agent": "開啟雲端代理",
+  "Open pull request": "開啟拉取請求",
+  "Opens a pull request": "會開啟拉取請求",
+  Repository: "儲存庫",
   "Recording a live demonstration needs desktop or web with the full computer view. You can still ask this bot to run saved skills from chat.":
     "錄製現場演示需要桌面版或網頁版的完整電腦檢視。你仍可在聊天中讓這個機器人執行已儲存的技能。",
   "Remote MCP server": "遠端 MCP 伺服器",

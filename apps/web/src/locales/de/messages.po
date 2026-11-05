@@ -3559,6 +3559,10 @@ msgstr "Bildeingabe ist für dieses Modell nicht konfiguriert."
 msgid "Image upload area"
 msgstr "Bild-Upload-Bereich"
 
+#: src/components/CloudAgentCard.tsx
+msgid "Images"
+msgstr ""
+
 #: src/components/AccountDataSettings.tsx
 msgid "Import"
 msgstr ""
@@ -4717,6 +4721,10 @@ msgstr "Anruf öffnen"
 msgid "Open chat with {0}"
 msgstr "Chat mit {0} öffnen"
 
+#: src/components/CloudAgentCard.tsx
+msgid "Open cloud agent"
+msgstr ""
+
 #: src/components/ComputersUnavailableHint.tsx
 msgid "Open computer settings"
 msgstr "Computer-Einstellungen öffnen"
@@ -4736,6 +4744,10 @@ msgstr "Link öffnen"
 #: src/pages/shell/chat-header.tsx
 msgid "Open navigation"
 msgstr "Navigation öffnen"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Open pull request"
+msgstr ""
 
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
@@ -4758,6 +4770,10 @@ msgstr "URL eines OpenAI-kompatiblen Servers"
 #: src/pages/shell/agent-import.tsx
 msgid "OpenClaw or Hermes"
 msgstr "OpenClaw oder Hermes"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Opens a pull request"
+msgstr ""
 
 #: src/components/pages/DownloadPdfButton.tsx
 msgid "Opens your browser's print dialog. Choose Save as PDF as the destination."
@@ -5081,6 +5097,10 @@ msgstr ""
 #: src/pages/shell/import-status.ts
 msgid "Program: {name}"
 msgstr "Programm: {name}"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Prompt"
+msgstr ""
 
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Protected input"
@@ -5430,6 +5450,10 @@ msgstr ""
 #. placeholder {0}: replyNameRef.current
 #: src/pages/shell/composer.tsx
 msgid "Replying to {0}"
+msgstr ""
+
+#: src/components/CloudAgentCard.tsx
+msgid "Repository"
 msgstr ""
 
 #: src/lib/user-error.ts

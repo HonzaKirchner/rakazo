@@ -3559,6 +3559,10 @@ msgstr "이 모델에는 이미지 입력이 설정되어 있지 않습니다."
 msgid "Image upload area"
 msgstr "이미지 업로드 영역"
 
+#: src/components/CloudAgentCard.tsx
+msgid "Images"
+msgstr ""
+
 #: src/components/AccountDataSettings.tsx
 msgid "Import"
 msgstr ""
@@ -4717,6 +4721,10 @@ msgstr ""
 msgid "Open chat with {0}"
 msgstr ""
 
+#: src/components/CloudAgentCard.tsx
+msgid "Open cloud agent"
+msgstr ""
+
 #: src/components/ComputersUnavailableHint.tsx
 msgid "Open computer settings"
 msgstr "컴퓨터 설정 열기"
@@ -4736,6 +4744,10 @@ msgstr "링크 열기"
 #: src/pages/shell/chat-header.tsx
 msgid "Open navigation"
 msgstr "메뉴 열기"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Open pull request"
+msgstr ""
 
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
@@ -4758,6 +4770,10 @@ msgstr "OpenAI 호환 서버 주소"
 #: src/pages/shell/agent-import.tsx
 msgid "OpenClaw or Hermes"
 msgstr "OpenClaw 또는 Hermes"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Opens a pull request"
+msgstr ""
 
 #: src/components/pages/DownloadPdfButton.tsx
 msgid "Opens your browser's print dialog. Choose Save as PDF as the destination."
@@ -5081,6 +5097,10 @@ msgstr ""
 #: src/pages/shell/import-status.ts
 msgid "Program: {name}"
 msgstr "프로그램: {name}"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Prompt"
+msgstr ""
 
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Protected input"
@@ -5430,6 +5450,10 @@ msgstr ""
 #. placeholder {0}: replyNameRef.current
 #: src/pages/shell/composer.tsx
 msgid "Replying to {0}"
+msgstr ""
+
+#: src/components/CloudAgentCard.tsx
+msgid "Repository"
 msgstr ""
 
 #: src/lib/user-error.ts

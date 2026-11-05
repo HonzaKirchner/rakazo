@@ -3559,6 +3559,10 @@ msgstr "Afbeeldingsinvoer is niet ingesteld voor dit model."
 msgid "Image upload area"
 msgstr "Gebied voor afbeeldingsuploads"
 
+#: src/components/CloudAgentCard.tsx
+msgid "Images"
+msgstr ""
+
 #: src/components/AccountDataSettings.tsx
 msgid "Import"
 msgstr ""
@@ -4717,6 +4721,10 @@ msgstr "Gesprek openen"
 msgid "Open chat with {0}"
 msgstr "Chat openen met {0}"
 
+#: src/components/CloudAgentCard.tsx
+msgid "Open cloud agent"
+msgstr ""
+
 #: src/components/ComputersUnavailableHint.tsx
 msgid "Open computer settings"
 msgstr "Computerinstellingen openen"
@@ -4736,6 +4744,10 @@ msgstr "Link openen"
 #: src/pages/shell/chat-header.tsx
 msgid "Open navigation"
 msgstr "Navigatie openen"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Open pull request"
+msgstr ""
 
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
@@ -4758,6 +4770,10 @@ msgstr "OpenAI-compatibele server-URL"
 #: src/pages/shell/agent-import.tsx
 msgid "OpenClaw or Hermes"
 msgstr "OpenClaw of Hermes"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Opens a pull request"
+msgstr ""
 
 #: src/components/pages/DownloadPdfButton.tsx
 msgid "Opens your browser's print dialog. Choose Save as PDF as the destination."
@@ -5081,6 +5097,10 @@ msgstr ""
 #: src/pages/shell/import-status.ts
 msgid "Program: {name}"
 msgstr "Programma: {name}"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Prompt"
+msgstr ""
 
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Protected input"
@@ -5431,6 +5451,10 @@ msgstr "Antwoord geannuleerd"
 #: src/pages/shell/composer.tsx
 msgid "Replying to {0}"
 msgstr "Antwoordt op {0}"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Repository"
+msgstr ""
 
 #: src/lib/user-error.ts
 msgid "Request a new code"

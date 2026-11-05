@@ -3560,6 +3560,10 @@ msgstr "此模型尚未設定圖片輸入。"
 msgid "Image upload area"
 msgstr "圖片上傳區域"
 
+#: src/components/CloudAgentCard.tsx
+msgid "Images"
+msgstr ""
+
 #: src/components/AccountDataSettings.tsx
 msgid "Import"
 msgstr ""
@@ -4718,6 +4722,10 @@ msgstr "開啟通話"
 msgid "Open chat with {0}"
 msgstr "開啟與 {0} 的對話"
 
+#: src/components/CloudAgentCard.tsx
+msgid "Open cloud agent"
+msgstr ""
+
 #: src/components/ComputersUnavailableHint.tsx
 msgid "Open computer settings"
 msgstr "開啟電腦設定"
@@ -4737,6 +4745,10 @@ msgstr "開啟連結"
 #: src/pages/shell/chat-header.tsx
 msgid "Open navigation"
 msgstr "開啟導覽"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Open pull request"
+msgstr ""
 
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
@@ -4759,6 +4771,10 @@ msgstr "OpenAI 相容伺服器 URL"
 #: src/pages/shell/agent-import.tsx
 msgid "OpenClaw or Hermes"
 msgstr "OpenClaw 或 Hermes"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Opens a pull request"
+msgstr ""
 
 #: src/components/pages/DownloadPdfButton.tsx
 msgid "Opens your browser's print dialog. Choose Save as PDF as the destination."
@@ -5082,6 +5098,10 @@ msgstr ""
 #: src/pages/shell/import-status.ts
 msgid "Program: {name}"
 msgstr "程式：{name}"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Prompt"
+msgstr ""
 
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Protected input"
@@ -5432,6 +5452,10 @@ msgstr "已取消回覆"
 #: src/pages/shell/composer.tsx
 msgid "Replying to {0}"
 msgstr "正在回覆 {0}"
+
+#: src/components/CloudAgentCard.tsx
+msgid "Repository"
+msgstr ""
 
 #: src/lib/user-error.ts
 msgid "Request a new code"

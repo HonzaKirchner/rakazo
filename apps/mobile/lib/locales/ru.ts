@@ -901,6 +901,11 @@ export const RU_MESSAGES: Record<string, string> = {
     "Вставьте OpenAI-совместимый адрес со своего сервера. При необходимости Rakazo добавляет /v1.",
   Paused: "Приостановлено",
   Prompt: "Промпт",
+  Images: "Изображения",
+  "Open cloud agent": "Открыть облачного агента",
+  "Open pull request": "Открыть пул-реквест",
+  "Opens a pull request": "Открывает пул-реквест",
+  Repository: "Репозиторий",
   "Recording a live demonstration needs desktop or web with the full computer view. You can still ask this bot to run saved skills from chat.":
     "Для записи живой демонстрации требуется приложение для компьютера или веб-приложение с полным представлением компьютера. Вы по-прежнему можете попросить этого бота запустить сохранённые навыки из чата.",
   "Remote MCP server": "Удалённый MCP-сервер",
