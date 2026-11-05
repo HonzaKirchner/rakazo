@@ -5,12 +5,12 @@ import {
   chatUserBubbleColors,
   isRunWaitingOnUser,
   isRunWorking,
-  latestCloudAgent,
   liveActivityLine,
   liveMessageComposing,
   memberName,
   newClientId,
   newestPageCards,
+  runningCloudAgent,
   displayName as safeDisplayName,
   withoutCloudAgent,
 } from "@rakazo/core";
@@ -211,7 +211,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   const { error, setError } = feedback;
   const [selectableText, setSelectableText] = useState<string | null>(null);
   const pinnedCloudAgent = useMemo(
-    () => (readOnly ? undefined : latestCloudAgent(snap?.messages ?? [])),
+    () => (readOnly ? undefined : runningCloudAgent(snap?.messages ?? [])),
     [readOnly, snap?.messages],
   );
   // The pinned card is the agent's only copy, so the messages leave it out.

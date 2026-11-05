@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cloudAgentBlockFromPayload,
   cloudAgentHttpsUrl,
-  latestCloudAgent,
+  runningCloudAgent,
   withoutCloudAgent,
 } from "./cloud-agent.js";
 import { projectMessages } from "./events.js";
@@ -86,15 +86,17 @@ const agent = (agentId: string, status: "running" | "finished") =>
   ({ kind: "cloud_agent", agentId, title: agentId, status, url: "" }) satisfies MessageBlock;
 
 describe("pinned cloud agent", () => {
-  it("pins the newest agent whether or not it is still running", () => {
+  it("pins the newest agent that is still running", () => {
     expect(
-      latestCloudAgent([
+      runningCloudAgent([
         { blocks: [agent("old", "running")] },
-        { blocks: [agent("new", "finished"), { kind: "text", text: "hi" }] },
+        { blocks: [agent("newer", "running"), { kind: "text", text: "hi" }] },
+        { blocks: [agent("new", "finished")] },
         {},
       ])?.agentId,
-    ).toBe("new");
-    expect(latestCloudAgent([{ blocks: [{ kind: "text", text: "hi" }] }])).toBeUndefined();
+    ).toBe("newer");
+    expect(runningCloudAgent([{ blocks: [agent("done", "finished")] }])).toBeUndefined();
+    expect(runningCloudAgent([{ blocks: [{ kind: "text", text: "hi" }] }])).toBeUndefined();
   });
 
   it("removes only the pinned card and the messages it leaves empty", () => {

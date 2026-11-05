@@ -16,9 +16,9 @@ import {
   groupBotsForSidebar,
   isActive,
   isRunWorking,
-  latestCloudAgent,
   memberName,
   newClientId,
+  runningCloudAgent,
   withoutCloudAgent,
 } from "@rakazo/core";
 import { fetchFresh, writeSaved } from "@rakazo/core/query";
@@ -591,7 +591,7 @@ function SpaceShell() {
   const transcriptRunning = workingRuns.length > 0;
   const composerRunning = currentRuns.some((run) => isActive(run.status));
   const pinnedCloudAgent = useMemo(
-    () => latestCloudAgent(activeSnapshot?.messages ?? []),
+    () => runningCloudAgent(activeSnapshot?.messages ?? []),
     [activeSnapshot?.messages],
   );
   // The pinned card is the agent's only copy, so the transcript leaves it out.

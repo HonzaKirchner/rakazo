@@ -44,8 +44,8 @@ const openCloudAgents = new Set<string>();
 
 /**
  * A cloud agent's card: title, status and where the work landed, opening to the agent's final
- * reply and what it was launched with. The newest agent's card is pinned above the composer
- * instead of sitting in the transcript.
+ * reply and what it was launched with. While an agent runs, its card is pinned above the
+ * composer instead of sitting in the transcript.
  */
 export function CloudAgentCard({
   special,
@@ -207,7 +207,7 @@ export function CloudAgentCard({
   );
 }
 
-/** The newest cloud agent, kept above the composer while the messages scroll. */
+/** The newest running cloud agent, kept above the composer while the messages scroll. */
 export function PinnedCloudAgent({ block }: { block: CloudAgentBlock }) {
   return <CloudAgentCard special={block} pinned />;
 }

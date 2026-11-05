@@ -45,15 +45,15 @@ export function cloudAgentBlockFromPayload(
 
 type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
 
-/** The newest cloud agent in these messages, running or not. It stays pinned above the composer. */
-export function latestCloudAgent(
+/** The newest cloud agent still running in these messages. It is pinned above the composer. */
+export function runningCloudAgent(
   messages: readonly { blocks?: readonly MessageBlock[] }[],
 ): CloudAgentBlock | undefined {
   for (let m = messages.length - 1; m >= 0; m--) {
     const blocks = messages[m]?.blocks ?? [];
     for (let b = blocks.length - 1; b >= 0; b--) {
       const block = blocks[b];
-      if (block?.kind === "cloud_agent") return block;
+      if (block?.kind === "cloud_agent" && block.status === "running") return block;
     }
   }
   return undefined;
