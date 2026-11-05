@@ -37,20 +37,36 @@ export async function cloudAgentTitle(ctx: RunContext, prompt: string): Promise<
   const fallback = promptTitle(prompt);
   try {
     const role = await ctx.trust.loadApprovalModel();
-    const choice = [
-      ...(role.primary ? [role.primary] : []),
-      ...role.backups,
-    ].find(
+    const choice = [...(role.primary ? [role.primary] : []), ...role.backups].find(
       (row) =>
         row.provider !== JEV_AUTO_REVIEW_PROVIDER &&
         row.provider !== SCRIPTED_AUTO_REVIEW_PROVIDER &&
         !decisionModel(row.provider, row.modelId),
     );
-    if (!choice) return fallback;
-    return (await writeTitle(ctx, choice, prompt)) ?? fallback;
+    if (!choice) {
+      getLogger().info("cloud agent title fell back to the prompt: no title model", {
+        runId: ctx.runId,
+        primary: role.primary ? `${role.primary.provider}/${role.primary.modelId}` : null,
+        backups: role.backups.length,
+      });
+      return fallback;
+    }
+    const title = await writeTitle(ctx, choice, prompt);
+    getLogger().info(
+      title ? "cloud agent title written" : "cloud agent title fell back to the prompt",
+      {
+        runId: ctx.runId,
+        model: `${choice.provider}/${choice.modelId}`,
+        promptChars: prompt.length,
+        title: title ?? fallback,
+      },
+    );
+    return title ?? fallback;
   } catch (error) {
     getLogger().warn("cloud agent title fell back to the prompt", {
+      runId: ctx.runId,
       error: error instanceof Error ? error.name : "unknown",
+      message: error instanceof Error ? error.message : undefined,
     });
     return fallback;
   }
@@ -123,6 +139,16 @@ async function writeTitle(
     if (event.type === "done" && event.text) text = event.text;
   }
   // The runtime reports a failed call as reply text; never show that as a title.
-  if (/^(?:I hit a problem:|Unknown model )/i.test(text.trim())) return undefined;
-  return cleanCloudAgentTitle(text);
+  const failed = /^(?:I hit a problem:|Unknown model )/i.test(text.trim());
+  const title = failed ? undefined : cleanCloudAgentTitle(text);
+  getLogger().info("cloud agent title reply", {
+    runId,
+    model: `${choice.provider}/${choice.modelId}`,
+    replyChars: text.length,
+    replyLines: text.split(/\r?\n/).length,
+    replyWords: text.trim().split(/\s+/).filter(Boolean).length,
+    failed,
+    title,
+  });
+  return title;
 }
