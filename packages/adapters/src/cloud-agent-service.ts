@@ -18,6 +18,11 @@ export interface CloudAgentDeps {
   runLease?: ExecutorDeps["runLease"];
 }
 
+/** The prompt's first line, the title whenever no model writes a better one. */
+export function promptTitle(prompt: string): string {
+  return prompt.split(/\r?\n/, 1)[0]!.slice(0, 80);
+}
+
 export function cloudAgentBlock(agent: CloudAgent) {
   const launch = cloudAgentLaunchSchema.safeParse(agent.launchRequest);
   return cloudAgentBlockFromPayload({
@@ -41,6 +46,8 @@ export async function executeCloudAgentTool(
   run: { id: string; threadId: string },
   name: string,
   args: Record<string, unknown>,
+  /** Names a new agent from its prompt; without it the prompt's first line is the title. */
+  writeTitle: (prompt: string) => Promise<string> = async (prompt) => promptTitle(prompt),
 ) {
   const connection = deps.cloudAgent;
   if (!connection || !cloudAgentsEnabled(connection, context.spaceId)) {
@@ -49,6 +56,7 @@ export async function executeCloudAgentTool(
   let agent: CloudAgent;
   if (name === "cloud_agent_launch") {
     const request = cloudAgentLaunchSchema.parse(args);
+    const title = await writeTitle(request.prompt);
     const result = await deps.prisma.$transaction(async (tx) => {
       // Serialize with clearThread before creating either the intent or its card.
       await tx.thread.update({
@@ -76,7 +84,7 @@ export async function executeCloudAgentTool(
           userId: context.userId,
           botId: context.botId,
           threadId: run.threadId,
-          title: request.prompt.split(/\r?\n/, 1)[0]!.slice(0, 80),
+          title,
           launchRequest: request,
         },
       });

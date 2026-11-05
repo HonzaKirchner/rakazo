@@ -236,8 +236,8 @@ function fence(agent: CloudAgent) {
 }
 
 function snapshotData(snapshot: CloudAgentSnapshot): Prisma.CloudAgentUpdateManyMutationInput {
+  // The title was written from the prompt at launch; the provider's own name does not replace it.
   return {
-    title: snapshot.title,
     status: snapshot.status,
     url: cloudAgentHttpsUrl(snapshot.url) ?? "",
     branch: snapshot.branch,

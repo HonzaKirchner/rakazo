@@ -3,6 +3,7 @@ import { isBackgroundRunTrigger, redactSecrets } from "@rakazo/core";
 import { normalizedHttpUrl } from "@rakazo/core/egress";
 import { getLogger } from "@rakazo/logging";
 import { executeCloudAgentTool } from "./cloud-agent-service.js";
+import { cloudAgentTitle } from "./cloud-agent-title.js";
 import { collectLogIds } from "./composio-connector.js";
 import { connectApp } from "./connect-app.js";
 import { redactConnectorPayload, sanitizeConnectorError } from "./connector-safety.js";
@@ -26,6 +27,7 @@ export async function cloudAgentTool(ctx: RunContext, call: ToolCall) {
       run,
       name,
       args,
+      (prompt) => cloudAgentTitle(ctx, prompt),
     ),
   );
 }
