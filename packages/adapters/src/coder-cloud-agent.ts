@@ -11,8 +11,8 @@ import { CloudAgentRequestRejected, CloudAgentRetryLater } from "@rakazo/adapter
 import { z } from "zod";
 import { readBodyCapped } from "./web-ssrf.js";
 
-/** The workspace app that serves the Claude Code runner. */
-const APP_SLUG = "claude-code-runner";
+/** The workspace app that serves the Claude Code runner (claude-relay). */
+const APP_SLUG = "claude";
 /** A workspace start takes a minute or two; there is no point asking much sooner. */
 const START_RETRY_MS = 15_000;
 const STARTABLE = new Set(["stopped", "failed", "canceled"]);
@@ -161,12 +161,12 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     const parsed = agentSchema.safeParse(value);
     if (!parsed.success) throw new Error("Invalid cloud agent response");
     const agent = parsed.data;
-    const { origin, owner, name } = this.workspace;
     return {
       id: agent.id,
       title: agent.title || "Cloud agent",
       status: agent.status,
-      url: `${origin}/@${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+      // The runner's page for this agent, behind the same Coder login as its API.
+      url: `${this.workspace.origin}${this.appPath(`/ui/conversations/${encodeURIComponent(agent.id)}`)}`,
       latestRunId: agent.runId,
       ...(agent.branch ? { branch: agent.branch } : {}),
       ...(agent.prUrl ? { prUrl: agent.prUrl } : {}),
@@ -180,13 +180,7 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     body: unknown,
     signal: AbortSignal,
   ): Promise<unknown> {
-    const { owner, workspaceAndAgent } = this.workspace;
-    const { status, json } = await this.request(
-      method,
-      `/@${encodeURIComponent(owner)}/${encodeURIComponent(workspaceAndAgent)}/apps/${APP_SLUG}${path}`,
-      body,
-      signal,
-    );
+    const { status, json } = await this.request(method, this.appPath(path), body, signal);
     if (status >= 200 && status < 300) return json;
     const code = json && typeof json === "object" && "code" in json ? json.code : undefined;
     if (code === "not_found") throw new CloudAgentRequestRejected("not_found");
@@ -195,6 +189,11 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     if (typeof code === "string") throw new Error(`Cloud agent request failed (${status})`);
     // Coder answered for an app it could not reach: the workspace is stopped or still starting.
     return this.wake(signal);
+  }
+
+  private appPath(path: string) {
+    const { owner, workspaceAndAgent } = this.workspace;
+    return `/@${encodeURIComponent(owner)}/${encodeURIComponent(workspaceAndAgent)}/apps/${APP_SLUG}${path}`;
   }
 
   private async wake(signal: AbortSignal): Promise<never> {

@@ -7,7 +7,7 @@ import { CoderCloudAgentProvider, parseCoderWorkspaceUrl } from "./coder-cloud-a
 
 const ORIGIN = "https://coder.example.com";
 const WORKSPACE_URL = `${ORIGIN}/@alice/agents`;
-const APP = "/@alice/agents/apps/claude-code-runner";
+const APP = "/@alice/agents/apps/claude";
 
 const ctx: AdapterContext = {
   operationId: "operation",
@@ -130,8 +130,8 @@ describe("coder cloud agent provider (offline)", () => {
     expect(first).toMatchObject({
       status: "running",
       title: "Add a README",
-      url: WORKSPACE_URL,
     });
+    expect(first.url).toBe(`${ORIGIN}${APP}/ui/conversations/${first.id}`);
     expect((await provider.launch(request, ctx)).id).toBe(first.id);
     expect(coder.agents.size).toBe(1);
   });
