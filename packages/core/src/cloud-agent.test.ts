@@ -4,7 +4,6 @@ import {
   cloudAgentBlockFromPayload,
   cloudAgentHttpsUrl,
   runningCloudAgent,
-  withoutCloudAgent,
 } from "./cloud-agent.js";
 import { projectMessages } from "./events.js";
 
@@ -85,30 +84,18 @@ describe("shared cloud agent projection", () => {
 const agent = (agentId: string, status: "running" | "finished") =>
   ({ kind: "cloud_agent", agentId, title: agentId, status, url: "" }) satisfies MessageBlock;
 
-describe("pinned cloud agent", () => {
-  it("pins the newest agent that is still running", () => {
-    expect(
-      runningCloudAgent([
-        { blocks: [agent("old", "running")] },
-        { blocks: [agent("newer", "running"), { kind: "text", text: "hi" }] },
-        { blocks: [agent("new", "finished")] },
-        {},
-      ])?.agentId,
-    ).toBe("newer");
+describe("running cloud agent", () => {
+  it("finds the newest agent that is still running and its message", () => {
+    const newer = { id: "newer", blocks: [agent("newer", "running")] };
+    const found = runningCloudAgent([
+      { id: "old", blocks: [agent("old", "running")] },
+      newer,
+      { id: "new", blocks: [agent("new", "finished")] },
+      { id: "empty" },
+    ]);
+    expect(found?.block.agentId).toBe("newer");
+    expect(found?.message).toBe(newer);
     expect(runningCloudAgent([{ blocks: [agent("done", "finished")] }])).toBeUndefined();
     expect(runningCloudAgent([{ blocks: [{ kind: "text", text: "hi" }] }])).toBeUndefined();
-  });
-
-  it("removes only the pinned card and the messages it leaves empty", () => {
-    const messages = [
-      { id: "old", blocks: [agent("old", "finished")] },
-      { id: "alone", blocks: [agent("new", "running")] },
-      { id: "with-text", blocks: [{ kind: "text", text: "hi" }, agent("new", "running")] },
-    ] satisfies { id: string; blocks: MessageBlock[] }[];
-    expect(withoutCloudAgent(messages, "new")).toEqual([
-      messages[0],
-      { id: "with-text", blocks: [{ kind: "text", text: "hi" }] },
-    ]);
-    expect(withoutCloudAgent(messages, undefined)).toBe(messages);
   });
 });

@@ -3,24 +3,69 @@ import { ChatMarkdown } from "@rakazo/chat-ui/web";
 import type { MessageBlock } from "@rakazo/contracts";
 import { cloudAgentHttpsUrl } from "@rakazo/core";
 import { cn } from "@rakazo/ui-web";
-import { Badge } from "@rakazo/ui-web/components/ui/badge";
-import { Card, CardContent } from "@rakazo/ui-web/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@rakazo/ui-web/components/ui/collapsible";
-import { ChevronDown, ExternalLink } from "lucide-react";
-import { useState } from "react";
+import { ArrowUpRight, Ban, Check, Clock, GitPullRequest, LoaderCircle, X } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Shimmer } from "./ai/primitives";
 
 type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
 
-function RunningDot() {
+const STATUS_STYLE = {
+  running: { icon: LoaderCircle, tile: "bg-foreground text-background", bar: "" },
+  finished: { icon: Check, tile: "bg-success/15 text-success", bar: "bg-success" },
+  failed: { icon: X, tile: "bg-destructive/15 text-destructive", bar: "bg-destructive" },
+  cancelled: { icon: Ban, tile: "bg-muted text-muted-foreground", bar: "bg-muted-foreground/40" },
+  expired: { icon: Clock, tile: "bg-muted text-muted-foreground", bar: "bg-muted-foreground/40" },
+} as const;
+
+/** One line of text that scrolls to show its hidden end while the card is hovered. */
+function MarqueeLine({ children, className }: { children: ReactNode; className?: string }) {
+  const outer = useRef<HTMLSpanElement>(null);
+  const inner = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    const box = outer.current;
+    const text = inner.current;
+    if (!box || !text) return;
+    const measure = () => {
+      const overflow = Math.max(0, text.scrollWidth - box.clientWidth);
+      setShift(getComputedStyle(text).direction === "rtl" ? overflow : -overflow);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    observer.observe(text);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <span aria-hidden className="relative flex size-2 shrink-0">
-      <span className="absolute inline-flex size-full animate-ping rounded-full bg-foreground/40 motion-reduce:animate-none" />
-      <span className="relative inline-flex size-2 rounded-full bg-foreground" />
+    <span
+      ref={outer}
+      className={cn(
+        "block min-w-0 overflow-hidden whitespace-nowrap",
+        shift !== 0 && "mask-r-from-85% rtl:mask-l-from-85%",
+        className,
+      )}
+    >
+      <span
+        ref={inner}
+        dir="auto"
+        className={cn("inline-block", shift !== 0 && "rk-marquee")}
+        style={
+          shift !== 0
+            ? ({
+                "--rk-marquee-shift": `${shift}px`,
+                "--rk-marquee-duration": `${Math.max(3, Math.abs(shift) / 30)}s`,
+              } as CSSProperties)
+            : undefined
+        }
+      >
+        {children}
+      </span>
     </span>
   );
 }
@@ -28,122 +73,193 @@ function RunningDot() {
 // Live updates replace the block, so remember open cards by agent id across them.
 const openAgents = new Set<string>();
 
+// The reply and the launch details unfold together, at one pace.
+const EXPAND_MOTION = "duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]";
+// Two lines of the reply's text (14.5px at 1.5 line height) while the card is folded.
+const REPLY_PREVIEW_HEIGHT = 2 * 14.5 * 1.5;
+
 /**
- * A cloud agent's card. Folded, it shows the title, status and where the work landed. The
- * header opens it to the agent's final reply and what it was launched with. While an agent
- * runs, its card is pinned above the composer instead of sitting in the transcript.
+ * The agent's final reply. Folded, its first two lines fade out and a click opens the card;
+ * opening grows it to its full height.
  */
-export function CloudAgentCard({
-  block,
-  pinned = false,
+function AgentReply({
+  open,
+  onOpen,
+  children,
 }: {
-  block: CloudAgentBlock;
-  pinned?: boolean;
+  open: boolean;
+  onOpen: () => void;
+  children: string;
 }) {
+  const content = useRef<HTMLDivElement>(null);
+  const [fullHeight, setFullHeight] = useState<number>();
+  // Only changes after the first measurement animate, so a card never folds itself on mount.
+  const [animate, setAnimate] = useState(false);
+  useLayoutEffect(() => {
+    const element = content.current;
+    if (!element) return;
+    const measure = () => setFullHeight(element.offsetHeight);
+    measure();
+    const frame = requestAnimationFrame(() => setAnimate(true));
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, []);
+  const overflows = (fullHeight ?? 0) > REPLY_PREVIEW_HEIGHT;
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the title button opens the card for keyboard and screen readers.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: as above.
+    <div
+      data-testid="cloud-agent-summary"
+      onClick={open ? undefined : onOpen}
+      className={cn(
+        "relative mx-4 mb-4 overflow-hidden",
+        animate && ["transition-[height] motion-reduce:transition-none", EXPAND_MOTION],
+        !open && "cursor-pointer",
+      )}
+      style={{
+        height: open
+          ? fullHeight
+          : Math.min(fullHeight ?? REPLY_PREVIEW_HEIGHT, REPLY_PREVIEW_HEIGHT),
+      }}
+    >
+      <div
+        ref={content}
+        className={cn("text-[14.5px] leading-[1.5]", !open && "pointer-events-none")}
+      >
+        <ChatMarkdown>{children}</ChatMarkdown>
+      </div>
+      {overflows ? (
+        // Rides the bottom edge as the reply grows, dissolving before the reply settles.
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-linear-to-t from-card from-10% via-card/70 via-45% to-transparent transition-opacity duration-200 ease-out motion-reduce:transition-none",
+            open ? "opacity-0" : "opacity-100",
+          )}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A cloud agent's card. Folded, it shows the title, status, where the work landed and the start
+ * of the agent's final reply. Opened, it shows the whole reply and what it was launched with.
+ */
+export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   const { t } = useLingui();
   const [open, setOpen] = useState(() => openAgents.has(block.agentId));
+  const toggle = (next: boolean) => {
+    if (next) openAgents.add(block.agentId);
+    else openAgents.delete(block.agentId);
+    setOpen(next);
+  };
   const prHref = cloudAgentHttpsUrl(block.prUrl);
-  const href = prHref ?? cloudAgentHttpsUrl(block.url);
+  const agentHref = cloudAgentHttpsUrl(block.url);
   const running = block.status === "running";
+  const status = STATUS_STYLE[block.status];
+  const StatusIcon = status.icon;
+  const statusLabel =
+    block.status === "running" ? (
+      <Shimmer>
+        <Trans>running</Trans>
+      </Shimmer>
+    ) : block.status === "finished" ? (
+      <span className="text-success">
+        <Trans>finished</Trans>
+      </span>
+    ) : block.status === "failed" ? (
+      <span className="text-destructive">
+        <Trans>failed</Trans>
+      </span>
+    ) : block.status === "cancelled" ? (
+      <Trans>cancelled</Trans>
+    ) : (
+      <Trans>expired</Trans>
+    );
   return (
-    <Card
-      size={pinned ? "default" : "sm"}
+    <div
       className={cn(
-        "max-w-full transition-shadow",
-        pinned ? "w-full shadow-lg" : "w-96",
-        running && "ring-2 ring-foreground/25",
-        running && !pinned && "shadow-md",
+        "rk-marquee-host group/agent relative w-xl max-w-full overflow-hidden rounded-2xl bg-card text-sm text-card-foreground ring-1",
+        running
+          ? "shadow-xl shadow-foreground/10 ring-foreground/20"
+          : "shadow-lg shadow-foreground/5 ring-foreground/10",
       )}
-      data-testid={pinned ? "pinned-cloud-agent" : "cloud-agent-card"}
+      data-testid="cloud-agent-card"
     >
-      <Collapsible
-        open={open}
-        onOpenChange={(next) => {
-          if (next) openAgents.add(block.agentId);
-          else openAgents.delete(block.agentId);
-          setOpen(next);
-        }}
-      >
-        <CardContent className="flex flex-col gap-2">
-          <div className="flex items-start gap-2">
-            <CollapsibleTrigger className="flex min-w-0 flex-1 cursor-pointer items-start justify-between gap-3 rounded-md text-start outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-              <span
-                className={cn("min-w-0 font-medium", (pinned || running) && "text-base")}
-                dir="auto"
-              >
-                {block.title}
-              </span>
-              <span className="flex shrink-0 items-center gap-2 pt-0.5">
-                {running ? (
-                  <span className="flex items-center gap-2 text-[13px]">
-                    <RunningDot />
-                    <Shimmer>
-                      <Trans>running</Trans>
-                    </Shimmer>
-                  </span>
-                ) : (
-                  <Badge
-                    variant="secondary"
-                    className={
-                      block.status === "failed"
-                        ? "text-destructive"
-                        : block.status === "finished"
-                          ? "text-success"
-                          : "text-muted-foreground"
-                    }
-                  >
-                    {block.status === "finished" ? (
-                      <Trans>finished</Trans>
-                    ) : block.status === "cancelled" ? (
-                      <Trans>cancelled</Trans>
-                    ) : block.status === "expired" ? (
-                      <Trans>expired</Trans>
-                    ) : (
-                      <Trans>failed</Trans>
-                    )}
-                  </Badge>
-                )}
-                <ChevronDown
-                  aria-hidden
-                  className={cn(
-                    "size-4 text-muted-foreground transition-transform motion-reduce:transition-none",
-                    open && "rotate-180",
-                  )}
-                />
-              </span>
-            </CollapsibleTrigger>
-            {href ? (
-              <a
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={prHref ? t`Open pull request` : t`Open cloud agent`}
-                className="shrink-0 rounded-md p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <ExternalLink aria-hidden className="size-4" />
-              </a>
-            ) : null}
-          </div>
-          {prHref ? (
-            <span className="text-muted-foreground">
-              <Trans>Pull request</Trans>
-            </span>
-          ) : block.branch ? (
-            <span className="font-mono text-[12px] text-muted-foreground" dir="auto">
-              {block.branch}
-            </span>
-          ) : null}
-          <CollapsibleContent
-            className={cn(
-              "flex flex-col gap-3 pt-1",
-              pinned && "rk-scroll max-h-[40dvh] overflow-y-auto",
-            )}
+      <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 overflow-hidden">
+        {running ? (
+          <span className="rk-indeterminate absolute inset-y-0 w-2/5 bg-foreground" />
+        ) : (
+          <span className={cn("absolute inset-0", status.bar)} />
+        )}
+      </span>
+      <Collapsible open={open} onOpenChange={toggle}>
+        {/* The title's button covers the whole header; the links sit above it. */}
+        <div className="relative flex items-center gap-3 px-4 pt-4 pb-3">
+          <span
+            aria-hidden
+            className={cn("grid size-10 shrink-0 place-items-center rounded-xl", status.tile)}
           >
-            {block.summary ? (
-              <div data-testid="cloud-agent-summary" className="text-[14.5px] leading-[1.5]">
-                <ChatMarkdown>{block.summary}</ChatMarkdown>
-              </div>
-            ) : null}
+            <StatusIcon
+              className={cn("size-5", running && "animate-spin motion-reduce:animate-none")}
+              strokeWidth={2.25}
+            />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <CollapsibleTrigger className="min-w-0 cursor-pointer rounded-md text-start outline-none after:absolute after:inset-0 focus-visible:ring-3 focus-visible:ring-ring/50">
+              <MarqueeLine className="text-[15px] font-semibold tracking-tight">
+                {block.title}
+              </MarqueeLine>
+            </CollapsibleTrigger>
+            <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground">
+              <span className="shrink-0 font-medium">{statusLabel}</span>
+              {prHref || block.branch ? (
+                <>
+                  <span aria-hidden>·</span>
+                  {prHref ? (
+                    <a
+                      href={prHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="relative z-10 flex min-w-0 items-center gap-1 rounded-sm text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      <GitPullRequest aria-hidden className="size-3.5 shrink-0" />
+                      <Trans>Pull request</Trans>
+                    </a>
+                  ) : (
+                    <span className="min-w-0 truncate font-mono text-[12px]" dir="auto">
+                      {block.branch}
+                    </span>
+                  )}
+                </>
+              ) : null}
+            </span>
+          </span>
+          {agentHref ? (
+            <a
+              href={agentHref}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={t`Open cloud agent`}
+              className="relative z-10 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground ring-1 ring-foreground/10 outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <ArrowUpRight aria-hidden className="size-4" />
+            </a>
+          ) : null}
+        </div>
+        {block.summary ? (
+          <AgentReply open={open} onOpen={() => toggle(true)}>
+            {block.summary}
+          </AgentReply>
+        ) : null}
+        <CollapsibleContent className={EXPAND_MOTION}>
+          {/* Padding lives inside the panel so it folds all the way to nothing. */}
+          <div className="flex flex-col gap-3 border-t border-border px-4 pt-3 pb-4">
             <dl className="grid gap-2 text-[13px]">
               {block.prompt ? (
                 <div>
@@ -179,18 +295,9 @@ export function CloudAgentCard({
                 </div>
               ) : null}
             </dl>
-          </CollapsibleContent>
-        </CardContent>
+          </div>
+        </CollapsibleContent>
       </Collapsible>
-    </Card>
-  );
-}
-
-/** The newest running cloud agent, kept above the composer while the transcript scrolls. */
-export function PinnedCloudAgent({ block }: { block: CloudAgentBlock }) {
-  return (
-    <div className="pointer-events-auto px-3 pb-2 md:px-[max(1.5rem,calc((100%_-_60rem)/2))]">
-      <CloudAgentCard block={block} pinned />
     </div>
   );
 }

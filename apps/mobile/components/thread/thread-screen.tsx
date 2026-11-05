@@ -12,13 +12,13 @@ import {
   newestPageCards,
   runningCloudAgent,
   displayName as safeDisplayName,
-  withoutCloudAgent,
 } from "@rakazo/core";
 import { useFocusEffect, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { I18nManager, Platform, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { readableGutters } from "../../lib/adaptive-layout";
 import { rpc } from "../../lib/api";
@@ -210,16 +210,14 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   const feedback = useThreadFeedback(threadKey, newClientId, echoed);
   const { error, setError } = feedback;
   const [selectableText, setSelectableText] = useState<string | null>(null);
-  const pinnedCloudAgent = useMemo(
+  const runningAgent = useMemo(
     () => (readOnly ? undefined : runningCloudAgent(snap?.messages ?? [])),
     [readOnly, snap?.messages],
   );
-  // The pinned card is the agent's only copy, so the messages leave it out.
-  const transcriptMessages = useMemo(
-    () => snap?.messages && withoutCloudAgent(snap.messages, pinnedCloudAgent?.agentId),
-    [snap?.messages, pinnedCloudAgent?.agentId],
-  );
-  const transcript = useThreadTranscript(transcriptMessages, inGroup);
+  // The running agent's card stays in the messages; a copy floats above the composer while it is
+  // scrolled out of view, since a native list cannot pin one of its rows.
+  const [runningAgentInView, setRunningAgentInView] = useState(false);
+  const transcript = useThreadTranscript(snap?.messages, inGroup);
   const { reactionView, peerTranscript, setExpandedPeerMarkers } = transcript;
   const visibleMessages = transcript.visibleMessages;
   const newestPages = useMemo(() => newestPageCards(visibleMessages), [visibleMessages]);
@@ -603,18 +601,28 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
               workingFooter={workingFooter}
               loadingNewer={paging.loadingNewer}
               showLatest={showLatest}
+              watchedMessageId={runningAgent?.message.id}
+              onWatchedMessageInView={setRunningAgentInView}
             />
           </NewestPageCards.Provider>
+          {runningAgent && !runningAgentInView && !scroll.showPinnedPage ? (
+            <Animated.View
+              entering={FadeIn.duration(180)}
+              exiting={FadeOut.duration(140)}
+              pointerEvents="box-none"
+              style={[
+                { position: "absolute", left: 0, right: 0, bottom: dockHeight },
+                columnPadding,
+              ]}
+            >
+              <PinnedCloudAgent block={runningAgent.block} />
+            </Animated.View>
+          ) : null}
           {/* Shrinks (the suggestion lists scroll) so the input and Send stay above the keyboard. */}
           <ThreadComposerDock
             hidden={readOnly}
             columnPadding={columnPadding}
-            notice={
-              <>
-                <ThreadFetchErrorNotice error={error} showingSaved={showingSaved} />
-                {pinnedCloudAgent ? <PinnedCloudAgent block={pinnedCloudAgent} /> : null}
-              </>
-            }
+            notice={<ThreadFetchErrorNotice error={error} showingSaved={showingSaved} />}
             onHeight={setDockHeight}
             replyTarget={replyTarget}
             replyAuthor={

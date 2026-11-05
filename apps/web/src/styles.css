@@ -88,6 +88,35 @@ body,
   -webkit-app-region: no-drag;
 }
 
+/* A cloud agent card's overflowing title scrolls to its end and back while the card is hovered. */
+@keyframes rk-marquee {
+  0%,
+  15% {
+    transform: translateX(0);
+  }
+  85%,
+  100% {
+    transform: translateX(var(--rk-marquee-shift));
+  }
+}
+@keyframes rk-indeterminate {
+  from {
+    inset-inline-start: -40%;
+  }
+  to {
+    inset-inline-start: 100%;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rk-marquee-host:hover .rk-marquee,
+  .rk-marquee-host:focus-within .rk-marquee {
+    animation: rk-marquee var(--rk-marquee-duration) ease-in-out infinite alternate;
+  }
+  .rk-indeterminate {
+    animation: rk-indeterminate 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+}
+
 @keyframes rkPulse {
   0%,
   100% {

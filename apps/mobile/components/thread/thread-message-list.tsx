@@ -1,8 +1,8 @@
 import type { ThreadItem } from "@rakazo/core";
 import { threadWindowMessages } from "@rakazo/core";
 import type { ReactElement, ReactNode } from "react";
-import { useMemo } from "react";
-import type { ListRenderItem } from "react-native";
+import { useEffect, useMemo, useRef } from "react";
+import type { ListRenderItem, ViewToken } from "react-native";
 import { ActivityIndicator, FlatList, Platform, ScrollView, StyleSheet, View } from "react-native";
 import type { MobileMessage } from "../../lib/api";
 import { mobileTokens } from "../../lib/appearance";
@@ -44,6 +44,8 @@ export function ThreadMessageList({
   workingFooter,
   loadingNewer,
   showLatest,
+  watchedMessageId,
+  onWatchedMessageInView,
 }: {
   scroll: ThreadListScroll;
   pinnedListHandlers: ReturnType<typeof useThreadPaging>["pinnedListHandlers"];
@@ -66,6 +68,9 @@ export function ThreadMessageList({
   workingFooter: ReactNode;
   loadingNewer: boolean;
   showLatest: () => void;
+  /** A message whose visibility in the live list is reported through onWatchedMessageInView. */
+  watchedMessageId?: string;
+  onWatchedMessageInView?: (inView: boolean) => void;
 }) {
   const tokens = mobileTokens();
   const { showPinnedPage, pinnedTarget, pinnedNewerCursor, behavior, state } = scroll;
@@ -81,6 +86,24 @@ export function ThreadMessageList({
     }),
     [headerClearance.padding, bottomInset, columnPadding],
   );
+
+  // FlatList rejects a changing viewability callback, so it reads the latest props from refs.
+  const visibleIds = useRef<ReadonlySet<string>>(new Set());
+  const watched = useRef({ watchedMessageId, onWatchedMessageInView });
+  watched.current = { watchedMessageId, onWatchedMessageInView };
+  const reportWatched = () => {
+    const { watchedMessageId: id, onWatchedMessageInView: report } = watched.current;
+    report?.(id !== undefined && visibleIds.current.has(id));
+  };
+  useEffect(reportWatched, [watchedMessageId]);
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken<ThreadItem<MobileMessage>>[] }) => {
+      visibleIds.current = new Set(
+        viewableItems.flatMap(({ item }) => (item.kind === "message" ? [item.message.id] : [])),
+      );
+      reportWatched();
+    },
+  ).current;
 
   return (
     // The floor keeps a tall suggestion list from sliding under the transparent header.
@@ -148,6 +171,7 @@ export function ThreadMessageList({
               </View>
             }
             renderItem={renderItem}
+            onViewableItemsChanged={onViewableItemsChanged}
           />
         </ThreadScrollSurface>
       )}

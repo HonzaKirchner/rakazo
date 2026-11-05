@@ -16,6 +16,7 @@ import {
   peerExchangeLines,
   projectBotMentions,
   projectMessageReactions,
+  runningCloudAgent,
   timeSeparatorIds,
   unreadDividerMessageId,
   voiceChatHoldsMessage,
@@ -175,6 +176,9 @@ export const Transcript = memo(function Transcript({
     () => new Map(messages.map((message) => [message.id, message])),
     [messages],
   );
+  // A running cloud agent's card is its own message; it sticks to the transcript's edges while
+  // the conversation scrolls past it.
+  const stickyMessageId = useMemo(() => runningCloudAgent(messages)?.message.id, [messages]);
   const committedMentions = useRef(new Map<string, ChildBotBlock[]>());
   const mentionView = useMemo(() => {
     const view = projectBotMentions(messages);
@@ -568,7 +572,13 @@ export const Transcript = memo(function Transcript({
               ) : null}
               <div
                 data-message-id={message.id}
-                className={peerReceipt ? "relative py-0.5" : "group/message relative hover:z-[1]"}
+                className={
+                  peerReceipt
+                    ? "relative py-0.5"
+                    : message.id === stickyMessageId
+                      ? "group/message sticky top-0 bottom-0 z-10"
+                      : "group/message relative hover:z-[1]"
+                }
               >
                 <div
                   className={

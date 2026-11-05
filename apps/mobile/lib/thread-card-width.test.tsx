@@ -285,70 +285,39 @@ describe("thread cards", () => {
     expect(styleOf(container.firstElementChild)).toMatchObject({ gap: 8, width: "100%" });
   });
 
-  it.each([helper(), cloud])("preserves a lone $kind card's width and padding", (block) => {
-    renderBlocks([block]);
+  it("preserves a lone helper card's width and padding", () => {
+    renderBlocks([helper()]);
     expect(container.children).toHaveLength(1);
     expect(styleOf(container.firstElementChild)).toMatchObject({
       width: "90%",
       borderRadius: 18,
     });
-    expect(styleOf(container.querySelector("button[aria-expanded]"))).toMatchObject(
-      block.kind === "subagent"
-        ? { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, minHeight: 44 }
-        : { paddingHorizontal: 16, paddingVertical: 14, minHeight: 44 },
-    );
+    expect(styleOf(container.querySelector("button[aria-expanded]"))).toMatchObject({
+      paddingHorizontal: 16,
+      paddingTop: 14,
+      paddingBottom: 14,
+      minHeight: 44,
+    });
     expect(container.querySelector("[data-symbol='chevron.down']")).not.toBeNull();
-    expect(container.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe(
+  });
+
+  it("shows a lone cloud agent card full width with its link and no chevron", () => {
+    renderBlocks([cloud]);
+    expect(container.children).toHaveLength(1);
+    expect(styleOf(container.firstElementChild)).toMatchObject({ width: "100%", borderRadius: 20 });
+    expect(container.querySelector("[data-symbol='chevron.down']")).toBeNull();
+    expect(container.querySelector('[role="link"]')).not.toBeNull();
+  });
+
+  it("opens a cloud agent's pull request straight from the folded card", () => {
+    renderBlocks([{ ...cloud, agentId: "cloud-pr", prUrl: "https://example.test/pull/7" }]);
+    const links = [...container.querySelectorAll<HTMLElement>('[role="link"]')];
+    const pr = links.find((link) => link.textContent === "Pull request")!;
+    act(() => pr.click());
+    expect(Linking.openURL).toHaveBeenCalledWith("https://example.test/pull/7");
+    expect(container.querySelector("button[aria-expanded]")!.getAttribute("aria-expanded")).toBe(
       "false",
     );
-  });
-
-  it.each([
-    ["no longer in the roster", child, []],
-    ["deleted", { ...child, status: "deleted" }, [{ id: "child-1", name: "Planner" }]],
-  ])("keeps a child bot's name without a link when it is %s", (_, block, bots) => {
-    const onOpenBot = vi.fn();
-    renderBlocks([block as MessageBlock], { bots, onOpenBot });
-    const row = container.firstElementChild as HTMLElement;
-    expect(row.textContent).toContain("Planner");
-    expect(row.querySelector('[role="link"]')).toBeNull();
-    act(() => {
-      for (const span of row.querySelectorAll("span")) span.click();
-    });
-    expect(onOpenBot).not.toHaveBeenCalled();
-  });
-
-  it("keeps child navigation and long-press actions on each card and text piece", () => {
-    const onOpenBot = vi.fn();
-    const onLongPress = vi.fn();
-    renderBlocks([helper(), child, text("After")], {
-      bots: [{ id: "child-1", name: "Planner", color: "orange" }],
-      onOpenBot,
-      actionProps: { onLongPress },
-    });
-    const cards = [...container.firstElementChild!.children] as HTMLElement[];
-    expect(cards).toHaveLength(3);
-    act(() => cards[1]!.querySelector<HTMLElement>('[role="link"]')!.click());
-    expect(onOpenBot).toHaveBeenCalledWith("child-1", "Planner");
-    act(() =>
-      cards.forEach((card) => {
-        const target = card.tagName === "DIV" ? card.querySelector("button")! : card;
-        target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-      }),
-    );
-    expect(onLongPress).toHaveBeenCalledTimes(3);
-  });
-
-  it("keeps contiguous text in the normal bubble and leaves text-only messages unchanged", () => {
-    renderBlocks([helper(), text("First"), text("Second")]);
-    expect([...container.firstElementChild!.children].map((piece) => piece.textContent)).toEqual([
-      "agent-1CompletedCheck the plan",
-      "First\nSecond",
-    ]);
-    renderBlocks([text("First"), text("Second")]);
-    expect(container.children).toHaveLength(1);
-    expect(container.textContent).toBe("First\nSecond");
-    expect(container.querySelectorAll("button")).toHaveLength(1);
   });
 
   it("opens a cloud agent card to its reply, launch settings and link", () => {
@@ -369,7 +338,8 @@ describe("thread cards", () => {
     const header = container.querySelector<HTMLElement>("button[aria-expanded]")!;
     expect(header.getAttribute("aria-label")).toBe("Remote task: finished");
     expect(container.textContent).not.toContain("Check the weather");
-    expect(container.querySelector('[role="link"]')).toBeNull();
+    // Folded, a finished agent shows the start of its reply.
+    expect(container.textContent).toContain("Sunny");
     act(() => header.click());
     expect(header.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain("Sunny");

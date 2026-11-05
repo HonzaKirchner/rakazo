@@ -18,8 +18,6 @@ import {
   isRunWorking,
   memberName,
   newClientId,
-  runningCloudAgent,
-  withoutCloudAgent,
 } from "@rakazo/core";
 import { fetchFresh, writeSaved } from "@rakazo/core/query";
 import type { GroupAvatarMember } from "@rakazo/ui-web";
@@ -38,7 +36,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useParams } from "react-router-dom";
-import { PinnedCloudAgent } from "../components/CloudAgentCard";
 import { ComputerUpdateProgress } from "../components/ComputerUpdateProgress";
 import { CallCard, CallReturnBar } from "../components/call/CallCard";
 import { IncomingCall } from "../components/call/IncomingCall";
@@ -590,18 +587,9 @@ function SpaceShell() {
   const workingRuns = currentRuns.filter((run) => isRunWorking(run.status));
   const transcriptRunning = workingRuns.length > 0;
   const composerRunning = currentRuns.some((run) => isActive(run.status));
-  const pinnedCloudAgent = useMemo(
-    () => runningCloudAgent(activeSnapshot?.messages ?? []),
-    [activeSnapshot?.messages],
-  );
-  // The pinned card is the agent's only copy, so the transcript leaves it out.
   const transcript = useMemo(
-    () =>
-      foldPeerReplies(
-        withoutCloudAgent(activeSnapshot?.messages ?? [], pinnedCloudAgent?.agentId),
-        { includePeerReceipts: true },
-      ),
-    [activeSnapshot?.messages, pinnedCloudAgent?.agentId],
+    () => foldPeerReplies(activeSnapshot?.messages ?? [], { includePeerReceipts: true }),
+    [activeSnapshot?.messages],
   );
   const transcriptArtifactTarget = useMemo<ArtifactTarget>(
     () => (inGroup ? { groupId: groupId ?? "" } : { botId: active?.id ?? "" }),
@@ -1195,7 +1183,6 @@ function SpaceShell() {
                 <Trans>Teaching in progress. Stop teaching before sending a new message.</Trans>
               </div>
             ) : null}
-            {pinnedCloudAgent ? <PinnedCloudAgent block={pinnedCloudAgent} /> : null}
             <Composer
               key={inGroup ? `group:${groupId}` : `bot:${active?.id}`}
               draftKey={inGroup ? `group:${groupId}` : `bot:${active?.id}`}
