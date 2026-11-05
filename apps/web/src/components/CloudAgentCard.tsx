@@ -25,24 +25,21 @@ function RunningDot() {
   );
 }
 
-function CloudAgentLink({ href, children }: { href?: string; children: React.ReactNode }) {
-  return href ? (
-    <a href={href} target="_blank" rel="noreferrer" className="block max-w-full no-underline">
-      {children}
-    </a>
-  ) : (
-    children
-  );
-}
-
 // Live updates replace the block, so remember open cards by agent id across them.
 const openAgents = new Set<string>();
 
 /**
  * A cloud agent's card. Folded, it shows the title, status and where the work landed. The
- * header opens it to the agent's final reply and what it was launched with.
+ * header opens it to the agent's final reply and what it was launched with. The newest agent's
+ * card is pinned above the composer instead of sitting in the transcript.
  */
-export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
+export function CloudAgentCard({
+  block,
+  pinned = false,
+}: {
+  block: CloudAgentBlock;
+  pinned?: boolean;
+}) {
   const { t } = useLingui();
   const [open, setOpen] = useState(() => openAgents.has(block.agentId));
   const prHref = cloudAgentHttpsUrl(block.prUrl);
@@ -50,12 +47,14 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   const running = block.status === "running";
   return (
     <Card
-      size="sm"
+      size={pinned ? "default" : "sm"}
       className={cn(
-        "w-96 max-w-full transition-shadow",
-        running && "shadow-md ring-2 ring-foreground/25",
+        "max-w-full transition-shadow",
+        pinned ? "w-full shadow-lg" : "w-96",
+        running && "ring-2 ring-foreground/25",
+        running && !pinned && "shadow-md",
       )}
-      data-testid="cloud-agent-card"
+      data-testid={pinned ? "pinned-cloud-agent" : "cloud-agent-card"}
     >
       <Collapsible
         open={open}
@@ -68,7 +67,10 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
         <CardContent className="flex flex-col gap-2">
           <div className="flex items-start gap-2">
             <CollapsibleTrigger className="flex min-w-0 flex-1 cursor-pointer items-start justify-between gap-3 rounded-md text-start outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-              <span className={cn("min-w-0 font-medium", running && "text-base")} dir="auto">
+              <span
+                className={cn("min-w-0 font-medium", (pinned || running) && "text-base")}
+                dir="auto"
+              >
                 {block.title}
               </span>
               <span className="flex shrink-0 items-center gap-2 pt-0.5">
@@ -131,7 +133,12 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
               {block.branch}
             </span>
           ) : null}
-          <CollapsibleContent className="flex flex-col gap-3 pt-1">
+          <CollapsibleContent
+            className={cn(
+              "flex flex-col gap-3 pt-1",
+              pinned && "rk-scroll max-h-[40dvh] overflow-y-auto",
+            )}
+          >
             {block.summary ? (
               <div data-testid="cloud-agent-summary" className="text-[14.5px] leading-[1.5]">
                 <ChatMarkdown>{block.summary}</ChatMarkdown>
@@ -179,36 +186,11 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   );
 }
 
-/** The running cloud agent, kept above the composer while the transcript scrolls. */
+/** The newest cloud agent, kept above the composer while the transcript scrolls. */
 export function PinnedCloudAgent({ block }: { block: CloudAgentBlock }) {
-  const href = cloudAgentHttpsUrl(block.url);
   return (
     <div className="pointer-events-auto px-3 pb-2 md:px-[max(1.5rem,calc((100%_-_60rem)/2))]">
-      <CloudAgentLink href={href}>
-        <div
-          role="status"
-          data-testid="pinned-cloud-agent"
-          className="flex min-w-0 items-center gap-3 rounded-full bg-card px-4 py-2.5 text-sm text-card-foreground shadow-md ring-2 ring-foreground/25 transition-shadow hover:ring-foreground/40"
-        >
-          <RunningDot />
-          <span dir="auto" className="min-w-0 flex-1 truncate font-medium">
-            {block.title}
-          </span>
-          {block.branch ? (
-            <span
-              dir="auto"
-              className="hidden max-w-48 truncate font-mono text-[12px] text-muted-foreground sm:inline"
-            >
-              {block.branch}
-            </span>
-          ) : null}
-          <span className="shrink-0 text-[13px]">
-            <Shimmer>
-              <Trans>running</Trans>
-            </Shimmer>
-          </span>
-        </div>
-      </CloudAgentLink>
+      <CloudAgentCard block={block} pinned />
     </div>
   );
 }

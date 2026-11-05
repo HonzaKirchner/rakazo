@@ -16,9 +16,10 @@ import {
   groupBotsForSidebar,
   isActive,
   isRunWorking,
+  latestCloudAgent,
   memberName,
   newClientId,
-  runningCloudAgent,
+  withoutCloudAgent,
 } from "@rakazo/core";
 import { fetchFresh, writeSaved } from "@rakazo/core/query";
 import type { GroupAvatarMember } from "@rakazo/ui-web";
@@ -589,13 +590,18 @@ function SpaceShell() {
   const workingRuns = currentRuns.filter((run) => isRunWorking(run.status));
   const transcriptRunning = workingRuns.length > 0;
   const composerRunning = currentRuns.some((run) => isActive(run.status));
-  const transcript = useMemo(
-    () => foldPeerReplies(activeSnapshot?.messages ?? [], { includePeerReceipts: true }),
+  const pinnedCloudAgent = useMemo(
+    () => latestCloudAgent(activeSnapshot?.messages ?? []),
     [activeSnapshot?.messages],
   );
-  const pinnedCloudAgent = useMemo(
-    () => runningCloudAgent(activeSnapshot?.messages ?? []),
-    [activeSnapshot?.messages],
+  // The pinned card is the agent's only copy, so the transcript leaves it out.
+  const transcript = useMemo(
+    () =>
+      foldPeerReplies(
+        withoutCloudAgent(activeSnapshot?.messages ?? [], pinnedCloudAgent?.agentId),
+        { includePeerReceipts: true },
+      ),
+    [activeSnapshot?.messages, pinnedCloudAgent?.agentId],
   );
   const transcriptArtifactTarget = useMemo<ArtifactTarget>(
     () => (inGroup ? { groupId: groupId ?? "" } : { botId: active?.id ?? "" }),

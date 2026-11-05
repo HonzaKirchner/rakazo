@@ -5,13 +5,14 @@ import {
   chatUserBubbleColors,
   isRunWaitingOnUser,
   isRunWorking,
+  latestCloudAgent,
   liveActivityLine,
   liveMessageComposing,
   memberName,
   newClientId,
   newestPageCards,
-  runningCloudAgent,
   displayName as safeDisplayName,
+  withoutCloudAgent,
 } from "@rakazo/core";
 import { useFocusEffect, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -65,7 +66,7 @@ import { SelectTextSheet } from "../select-text-sheet";
 import { ThreadComposer } from "../thread-composer";
 import { ThreadErrorNotice, ThreadFetchErrorNotice } from "../thread-error-notice";
 import { createThreadHeaderStyles } from "../thread-header-styles";
-import { PinnedCloudAgent } from "./cloud-agent-pinned";
+import { PinnedCloudAgent } from "./cloud-agent-card";
 import { QuoteSheet } from "./quote-sheet";
 import { ThreadComposerDock } from "./thread-composer-dock";
 import { useThreadHeader } from "./thread-header";
@@ -209,8 +210,16 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   const feedback = useThreadFeedback(threadKey, newClientId, echoed);
   const { error, setError } = feedback;
   const [selectableText, setSelectableText] = useState<string | null>(null);
-  const transcript = useThreadTranscript(snap?.messages, inGroup);
-  const pinnedCloudAgent = useMemo(() => runningCloudAgent(snap?.messages ?? []), [snap?.messages]);
+  const pinnedCloudAgent = useMemo(
+    () => (readOnly ? undefined : latestCloudAgent(snap?.messages ?? [])),
+    [readOnly, snap?.messages],
+  );
+  // The pinned card is the agent's only copy, so the messages leave it out.
+  const transcriptMessages = useMemo(
+    () => snap?.messages && withoutCloudAgent(snap.messages, pinnedCloudAgent?.agentId),
+    [snap?.messages, pinnedCloudAgent?.agentId],
+  );
+  const transcript = useThreadTranscript(transcriptMessages, inGroup);
   const { reactionView, peerTranscript, setExpandedPeerMarkers } = transcript;
   const visibleMessages = transcript.visibleMessages;
   const newestPages = useMemo(() => newestPageCards(visibleMessages), [visibleMessages]);
@@ -603,9 +612,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
             notice={
               <>
                 <ThreadFetchErrorNotice error={error} showingSaved={showingSaved} />
-                {pinnedCloudAgent && !readOnly ? (
-                  <PinnedCloudAgent block={pinnedCloudAgent} />
-                ) : null}
+                {pinnedCloudAgent ? <PinnedCloudAgent block={pinnedCloudAgent} /> : null}
               </>
             }
             onHeight={setDockHeight}

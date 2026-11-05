@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   cloudAgentBlockFromPayload,
   cloudAgentHttpsUrl,
-  runningCloudAgent,
+  latestCloudAgent,
+  withoutCloudAgent,
 } from "./cloud-agent.js";
 import { projectMessages } from "./events.js";
 
@@ -84,18 +85,28 @@ describe("shared cloud agent projection", () => {
 const agent = (agentId: string, status: "running" | "finished") =>
   ({ kind: "cloud_agent", agentId, title: agentId, status, url: "" }) satisfies MessageBlock;
 
-describe("runningCloudAgent", () => {
-  it("returns the newest running agent and ignores finished ones", () => {
+describe("pinned cloud agent", () => {
+  it("pins the newest agent whether or not it is still running", () => {
     expect(
-      runningCloudAgent([
+      latestCloudAgent([
         { blocks: [agent("old", "running")] },
-        { blocks: [agent("new", "running"), { kind: "text", text: "hi" }] },
-        { blocks: [agent("done", "finished")] },
+        { blocks: [agent("new", "finished"), { kind: "text", text: "hi" }] },
+        {},
       ])?.agentId,
     ).toBe("new");
+    expect(latestCloudAgent([{ blocks: [{ kind: "text", text: "hi" }] }])).toBeUndefined();
   });
 
-  it("returns nothing when no agent is running", () => {
-    expect(runningCloudAgent([{ blocks: [agent("done", "finished")] }, {}])).toBeUndefined();
+  it("removes only the pinned card and the messages it leaves empty", () => {
+    const messages = [
+      { id: "old", blocks: [agent("old", "finished")] },
+      { id: "alone", blocks: [agent("new", "running")] },
+      { id: "with-text", blocks: [{ kind: "text", text: "hi" }, agent("new", "running")] },
+    ] satisfies { id: string; blocks: MessageBlock[] }[];
+    expect(withoutCloudAgent(messages, "new")).toEqual([
+      messages[0],
+      { id: "with-text", blocks: [{ kind: "text", text: "hi" }] },
+    ]);
+    expect(withoutCloudAgent(messages, undefined)).toBe(messages);
   });
 });

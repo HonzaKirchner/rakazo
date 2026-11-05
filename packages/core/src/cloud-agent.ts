@@ -43,16 +43,34 @@ export function cloudAgentBlockFromPayload(
   };
 }
 
-/** The newest cloud agent still running in these messages, if any. */
-export function runningCloudAgent(
+type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
+
+/** The newest cloud agent in these messages, running or not. It stays pinned above the composer. */
+export function latestCloudAgent(
   messages: readonly { blocks?: readonly MessageBlock[] }[],
-): Extract<MessageBlock, { kind: "cloud_agent" }> | undefined {
+): CloudAgentBlock | undefined {
   for (let m = messages.length - 1; m >= 0; m--) {
     const blocks = messages[m]?.blocks ?? [];
     for (let b = blocks.length - 1; b >= 0; b--) {
       const block = blocks[b];
-      if (block?.kind === "cloud_agent" && block.status === "running") return block;
+      if (block?.kind === "cloud_agent") return block;
     }
   }
   return undefined;
+}
+
+/** The messages without the pinned agent's card, dropping any message it leaves empty. */
+export function withoutCloudAgent<M extends { blocks: readonly MessageBlock[] }>(
+  messages: M[],
+  agentId: string | undefined,
+): M[] {
+  if (agentId === undefined) return messages;
+  const isPinned = (block: MessageBlock) =>
+    block.kind === "cloud_agent" && block.agentId === agentId;
+  if (!messages.some((message) => message.blocks.some(isPinned))) return messages;
+  return messages.flatMap((message) => {
+    if (!message.blocks.some(isPinned)) return [message];
+    const blocks = message.blocks.filter((block) => !isPinned(block));
+    return blocks.length ? [{ ...message, blocks }] : [];
+  });
 }
