@@ -87,12 +87,13 @@ const agent = (agentId: string, status: "running" | "finished") =>
 describe("running cloud agent", () => {
   it("finds the newest agent that is still running and its message", () => {
     const newer = { id: "newer", blocks: [agent("newer", "running")] };
-    const found = runningCloudAgent([
+    const messages: { id: string; blocks?: MessageBlock[] }[] = [
       { id: "old", blocks: [agent("old", "running")] },
       newer,
       { id: "new", blocks: [agent("new", "finished")] },
       { id: "empty" },
-    ]);
+    ];
+    const found = runningCloudAgent(messages);
     expect(found?.block.agentId).toBe("newer");
     expect(found?.message).toBe(newer);
     expect(runningCloudAgent([{ blocks: [agent("done", "finished")] }])).toBeUndefined();
