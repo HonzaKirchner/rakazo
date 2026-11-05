@@ -4757,10 +4757,6 @@ msgstr "लिंक खोलें"
 msgid "Open navigation"
 msgstr "नेविगेशन खोलें"
 
-#: src/components/CloudAgentCard.tsx
-msgid "Open pull request"
-msgstr ""
-
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
 msgid "Open Rakazo"

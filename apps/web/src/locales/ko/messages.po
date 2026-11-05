@@ -4757,10 +4757,6 @@ msgstr "링크 열기"
 msgid "Open navigation"
 msgstr "메뉴 열기"
 
-#: src/components/CloudAgentCard.tsx
-msgid "Open pull request"
-msgstr ""
-
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
 msgid "Open Rakazo"

@@ -3569,7 +3569,7 @@ msgstr "Obszar przesyłania obrazów"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Images"
-msgstr ""
+msgstr "Obrazy"
 
 #: src/components/AccountDataSettings.tsx
 msgid "Import"
@@ -4735,7 +4735,7 @@ msgstr "Otwórz czat z {0}"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Open cloud agent"
-msgstr ""
+msgstr "Otwórz agenta w chmurze"
 
 #: src/components/ComputersUnavailableHint.tsx
 msgid "Open computer settings"
@@ -4756,10 +4756,6 @@ msgstr "Otwórz link"
 #: src/pages/shell/chat-header.tsx
 msgid "Open navigation"
 msgstr "Otwórz nawigację"
-
-#: src/components/CloudAgentCard.tsx
-msgid "Open pull request"
-msgstr ""
 
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
@@ -4785,7 +4781,7 @@ msgstr "OpenClaw lub Hermes"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Opens a pull request"
-msgstr ""
+msgstr "Otwiera pull request"
 
 #: src/components/pages/DownloadPdfButton.tsx
 msgid "Opens your browser's print dialog. Choose Save as PDF as the destination."
@@ -5112,7 +5108,7 @@ msgstr "Program: {name}"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Prompt"
-msgstr ""
+msgstr "Prompt"
 
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Protected input"
@@ -5474,7 +5470,7 @@ msgstr "Odpowiedź do {0}"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Repository"
-msgstr ""
+msgstr "Repozytorium"
 
 #: src/lib/user-error.ts
 msgid "Request a new code"

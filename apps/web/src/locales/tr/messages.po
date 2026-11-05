@@ -3569,7 +3569,7 @@ msgstr "Görüntü yükleme alanı"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Images"
-msgstr ""
+msgstr "Görseller"
 
 #: src/components/AccountDataSettings.tsx
 msgid "Import"
@@ -4735,7 +4735,7 @@ msgstr "{0} ile sohbeti aç"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Open cloud agent"
-msgstr ""
+msgstr "Bulut agent'ını aç"
 
 #: src/components/ComputersUnavailableHint.tsx
 msgid "Open computer settings"
@@ -4756,10 +4756,6 @@ msgstr "Bağlantıyı aç"
 #: src/pages/shell/chat-header.tsx
 msgid "Open navigation"
 msgstr "Gezinmeyi aç"
-
-#: src/components/CloudAgentCard.tsx
-msgid "Open pull request"
-msgstr ""
 
 #: src/components/pages/PublicPageShell.tsx
 #: src/pages/SharedPage.tsx
@@ -4785,7 +4781,7 @@ msgstr "OpenClaw veya Hermes"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Opens a pull request"
-msgstr ""
+msgstr "Çekme isteği açar"
 
 #: src/components/pages/DownloadPdfButton.tsx
 msgid "Opens your browser's print dialog. Choose Save as PDF as the destination."
@@ -5112,7 +5108,7 @@ msgstr "Program: {name}"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Prompt"
-msgstr ""
+msgstr "İstem"
 
 #: src/components/teach/TeachRecordingChrome.tsx
 msgid "Protected input"
@@ -5474,7 +5470,7 @@ msgstr "{0} kişisine yanıt veriliyor"
 
 #: src/components/CloudAgentCard.tsx
 msgid "Repository"
-msgstr ""
+msgstr "Depo"
 
 #: src/lib/user-error.ts
 msgid "Request a new code"
