@@ -103,8 +103,9 @@ async function writeTitle(
       },
       prompt: `<task>${escapePromptData(prompt.slice(0, MAX_PROMPT_CHARS))}</task>`,
       instructions: [
-        "Name the coding task in <task> for a card title.",
-        "Reply with the title only: at most 8 words, plain text, no quotes, no period.",
+        "Name the goal of the coding task in <task> for a card title.",
+        "Leave out details such as the repository, files, branches and steps.",
+        "Reply with the title only: at most 5 words, plain text, no quotes, no period.",
         "Write it in the task's language.",
       ].join(" "),
       history: [],
