@@ -10,7 +10,7 @@ import {
 } from "@rakazo/ui-web/components/ui/collapsible";
 import { ArrowUpRight, Ban, Check, Clock, GitPullRequest, LoaderCircle, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Shimmer } from "./ai/primitives";
 
 type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
@@ -90,11 +90,14 @@ const PREVIEW_HEIGHT = 2 * 14.5 * 1.5;
 function CardPreview({
   open,
   onOpen,
+  onOverflowChange,
   testId,
   children,
 }: {
   open: boolean;
-  onOpen: () => void;
+  /** Absent when the card has nothing more to show. */
+  onOpen?: () => void;
+  onOverflowChange: (overflows: boolean) => void;
   testId: string;
   children: ReactNode;
 }) {
@@ -116,6 +119,7 @@ function CardPreview({
     };
   }, []);
   const overflows = (fullHeight ?? 0) > PREVIEW_HEIGHT;
+  useEffect(() => onOverflowChange(overflows), [onOverflowChange, overflows]);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the title button opens the card for keyboard and screen readers.
     // biome-ignore lint/a11y/useKeyWithClickEvents: as above.
@@ -125,7 +129,7 @@ function CardPreview({
       className={cn(
         "relative mx-4 mb-4 overflow-hidden",
         animate && ["transition-[height] motion-reduce:transition-none", EXPAND_MOTION],
-        !open && "cursor-pointer",
+        !open && onOpen && "cursor-pointer",
       )}
       style={{
         height: open ? fullHeight : Math.min(fullHeight ?? PREVIEW_HEIGHT, PREVIEW_HEIGHT),
@@ -170,6 +174,10 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   const hasDetails = Boolean(
     (block.prompt && block.summary) || block.repository || block.openPr || block.imageCount,
   );
+  // A short preview with no details hides nothing, so the card does not open.
+  const [previewOverflows, setPreviewOverflows] = useState(false);
+  const expandable = hasDetails || previewOverflows;
+  const openCard = expandable ? () => toggle(true) : undefined;
   const status = STATUS_STYLE[block.status];
   const StatusIcon = status.icon;
   const statusLabel =
@@ -220,7 +228,10 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
             />
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <CollapsibleTrigger className="min-w-0 cursor-pointer rounded-md text-start outline-none after:absolute after:inset-0 focus-visible:ring-3 focus-visible:ring-ring/50">
+            <CollapsibleTrigger
+              disabled={!expandable}
+              className="min-w-0 cursor-pointer rounded-md disabled:cursor-default text-start outline-none after:absolute after:inset-0 focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
               <MarqueeLine className="text-[15px] font-semibold tracking-tight">
                 {block.title}
               </MarqueeLine>
@@ -262,12 +273,22 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
           ) : null}
         </div>
         {block.summary ? (
-          <CardPreview open={open} onOpen={() => toggle(true)} testId="cloud-agent-summary">
+          <CardPreview
+            open={open}
+            onOpen={openCard}
+            onOverflowChange={setPreviewOverflows}
+            testId="cloud-agent-summary"
+          >
             <ChatMarkdown>{block.summary}</ChatMarkdown>
           </CardPreview>
         ) : block.prompt ? (
           // Until the agent replies, its prompt says what it is working on.
-          <CardPreview open={open} onOpen={() => toggle(true)} testId="cloud-agent-prompt">
+          <CardPreview
+            open={open}
+            onOpen={openCard}
+            onOverflowChange={setPreviewOverflows}
+            testId="cloud-agent-prompt"
+          >
             <p className="whitespace-pre-wrap break-words text-foreground/80" dir="auto">
               {block.prompt}
             </p>
