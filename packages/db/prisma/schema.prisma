@@ -1091,6 +1091,7 @@ model CloudAgent {
   url                 String   @default("")
   branch              String?
   prUrl               String?
+  summary             String?
   launchRequest       Json
   launchDispatched    Boolean  @default(false)
   followup            Json?

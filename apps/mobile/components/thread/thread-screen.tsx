@@ -10,6 +10,7 @@ import {
   memberName,
   newClientId,
   newestPageCards,
+  runningCloudAgent,
   displayName as safeDisplayName,
 } from "@rakazo/core";
 import { useFocusEffect, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
@@ -64,6 +65,7 @@ import { SelectTextSheet } from "../select-text-sheet";
 import { ThreadComposer } from "../thread-composer";
 import { ThreadErrorNotice, ThreadFetchErrorNotice } from "../thread-error-notice";
 import { createThreadHeaderStyles } from "../thread-header-styles";
+import { PinnedCloudAgent } from "./cloud-agent-pinned";
 import { QuoteSheet } from "./quote-sheet";
 import { ThreadComposerDock } from "./thread-composer-dock";
 import { useThreadHeader } from "./thread-header";
@@ -208,6 +210,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   const { error, setError } = feedback;
   const [selectableText, setSelectableText] = useState<string | null>(null);
   const transcript = useThreadTranscript(snap?.messages, inGroup);
+  const pinnedCloudAgent = useMemo(() => runningCloudAgent(snap?.messages ?? []), [snap?.messages]);
   const { reactionView, peerTranscript, setExpandedPeerMarkers } = transcript;
   const visibleMessages = transcript.visibleMessages;
   const newestPages = useMemo(() => newestPageCards(visibleMessages), [visibleMessages]);
@@ -597,7 +600,14 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
           <ThreadComposerDock
             hidden={readOnly}
             columnPadding={columnPadding}
-            notice={<ThreadFetchErrorNotice error={error} showingSaved={showingSaved} />}
+            notice={
+              <>
+                <ThreadFetchErrorNotice error={error} showingSaved={showingSaved} />
+                {pinnedCloudAgent && !readOnly ? (
+                  <PinnedCloudAgent block={pinnedCloudAgent} />
+                ) : null}
+              </>
+            }
             onHeight={setDockHeight}
             replyTarget={replyTarget}
             replyAuthor={

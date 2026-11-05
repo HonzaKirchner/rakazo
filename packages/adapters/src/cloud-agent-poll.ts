@@ -10,7 +10,7 @@ import {
   runContinueJob,
 } from "@rakazo/adapter-kit";
 import type { MessageBlock } from "@rakazo/contracts";
-import { cloudAgentHttpsUrl } from "@rakazo/core";
+import { CLOUD_AGENT_SUMMARY_MAX, cloudAgentHttpsUrl } from "@rakazo/core";
 import type { CloudAgent } from "@rakazo/db";
 import { appendEventInTransaction, Prisma } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
@@ -243,6 +243,8 @@ function snapshotData(snapshot: CloudAgentSnapshot): Prisma.CloudAgentUpdateMany
     branch: snapshot.branch,
     prUrl: snapshot.prUrl ? (cloudAgentHttpsUrl(snapshot.prUrl) ?? "") : undefined,
     latestRunId: snapshot.latestRunId,
+    // A new run has no reply yet, so the previous run's reply must not linger.
+    summary: snapshot.summary?.slice(0, CLOUD_AGENT_SUMMARY_MAX) ?? null,
   };
 }
 

@@ -18,6 +18,7 @@ import type { UserBubble } from "../../lib/user-bubble";
 import { withUserBubble } from "../../lib/user-bubble";
 import { BotMention } from "../bot-mention";
 import { NativeSymbol } from "../native-symbol";
+import { CloudAgentRunningDot } from "./cloud-agent-pinned";
 import type { MessageActionProps } from "./message-bubble";
 import type { MessageRowActions } from "./message-row";
 
@@ -171,57 +172,87 @@ function HelperMessageCard({
   );
 }
 
-export function SpecialMessageCard(props: SpecialMessageCardProps) {
-  const { special, actionProps, bots, members, onOpenBot, userBubble } = props;
+// Live updates replace the block, so remember open cards by agent id across them.
+const openCloudAgents = new Set<string>();
+
+function CloudAgentMessageCard({
+  special,
+  actionProps,
+  userBubble,
+}: Pick<SpecialMessageCardProps, "actionProps" | "userBubble"> & {
+  special: Extract<MessageBlock, { kind: "cloud_agent" }>;
+}) {
+  const colorScheme = useResolvedAppearance();
   const tokens = withUserBubble(mobileTokens(), userBubble);
   const { t } = useI18n();
-  if (special.kind === "subagent") return <HelperMessageCard {...props} special={special} />;
-  if (special.kind === "cloud_agent") {
-    const title = special.title || t("Cloud agent");
-    const statusLabel =
-      special.status === "running"
-        ? t("running")
-        : special.status === "finished"
-          ? t("finished")
-          : special.status === "cancelled"
-            ? t("cancelled")
-            : special.status === "expired"
-              ? t("expired")
-              : t("failed");
-    const running = special.status === "running";
-    const failed = special.status !== "running" && special.status !== "finished";
-    const prHref = cloudAgentHttpsUrl(special.prUrl);
-    const href = prHref ?? cloudAgentHttpsUrl(special.url);
-    return (
+  const [open, setOpen] = useState(() => openCloudAgents.has(special.agentId));
+  const title = special.title || t("Cloud agent");
+  const statusLabel =
+    special.status === "running"
+      ? t("running")
+      : special.status === "finished"
+        ? t("finished")
+        : special.status === "cancelled"
+          ? t("cancelled")
+          : special.status === "expired"
+            ? t("expired")
+            : t("failed");
+  const running = special.status === "running";
+  const failed = special.status !== "running" && special.status !== "finished";
+  const prHref = cloudAgentHttpsUrl(special.prUrl);
+  const href = prHref ?? cloudAgentHttpsUrl(special.url);
+  const label = { color: tokens.mutedForeground, ...typeScale.caption };
+  const value = { color: tokens.cardForeground, marginTop: 2, ...typeScale.secondary };
+  return (
+    <View
+      testID="cloud-agent-card"
+      style={{
+        width: "90%",
+        borderRadius: 18,
+        backgroundColor: tokens.card,
+        ...(running ? { borderWidth: 1.5, borderColor: tokens.foreground } : {}),
+      }}
+    >
       <Pressable
         {...actionProps}
         onPress={() => {
-          if (href) Linking.openURL(href).catch(() => undefined);
+          if (open) openCloudAgents.delete(special.agentId);
+          else openCloudAgents.add(special.agentId);
+          setOpen(!open);
         }}
-        testID="cloud-agent-card"
-        accessibilityRole={href ? "link" : "text"}
+        accessibilityRole="button"
         accessibilityLabel={`${title}: ${statusLabel}`}
-        disabled={!href}
-        style={{
-          width: "90%",
-          borderRadius: 18,
-          backgroundColor: tokens.card,
-          paddingHorizontal: 16,
-          paddingVertical: 14,
-        }}
+        accessibilityState={{ expanded: open }}
+        style={{ paddingHorizontal: 16, paddingVertical: 14, minHeight: 44 }}
       >
-        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-          <Text style={{ flexShrink: 1, color: tokens.cardForeground, ...typeScale.cardTitle }}>
-            {title}
-          </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text
             style={{
-              color: failed ? tokens.destructive : running ? tokens.warning : tokens.success,
-              ...typeScale.caption,
+              flexShrink: 1,
+              flexGrow: 1,
+              color: tokens.cardForeground,
+              ...typeScale.cardTitle,
             }}
           >
-            {statusLabel}
+            {title}
           </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {running ? <CloudAgentRunningDot color={tokens.foreground} /> : null}
+            <Text
+              style={{
+                color: failed ? tokens.destructive : running ? tokens.foreground : tokens.success,
+                ...typeScale.caption,
+              }}
+            >
+              {statusLabel}
+            </Text>
+          </View>
+          <NativeSymbol
+            ios={open ? "chevron.up" : "chevron.down"}
+            android={open ? "chevron-up" : "chevron-down"}
+            size={12}
+            color={tokens.mutedForeground}
+          />
         </View>
         {prHref ? (
           <Text style={{ color: tokens.mutedForeground, marginTop: 8, ...typeScale.secondary }}>
@@ -233,6 +264,62 @@ export function SpecialMessageCard(props: SpecialMessageCardProps) {
           </Text>
         ) : null}
       </Pressable>
+      {open ? (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 14, marginTop: -4, gap: 10 }}>
+          {special.summary ? (
+            <ChatMarkdown palette={tokens} colorScheme={colorScheme}>
+              {special.summary}
+            </ChatMarkdown>
+          ) : null}
+          {special.prompt ? (
+            <View>
+              <Text style={label}>{t("Prompt")}</Text>
+              <Text selectable style={value}>
+                {special.prompt}
+              </Text>
+            </View>
+          ) : null}
+          {special.repository ? (
+            <View>
+              <Text style={label}>{t("Repository")}</Text>
+              <Text selectable style={value}>
+                {special.repository}
+              </Text>
+            </View>
+          ) : null}
+          {special.openPr ? <Text style={label}>{t("Opens a pull request")}</Text> : null}
+          {special.imageCount ? (
+            <View>
+              <Text style={label}>{t("Images")}</Text>
+              <Text style={value}>{special.imageCount}</Text>
+            </View>
+          ) : null}
+          {href ? (
+            <Pressable
+              onPress={() => Linking.openURL(href).catch(() => undefined)}
+              accessibilityRole="link"
+              hitSlop={8}
+              style={{ alignSelf: "flex-start", minHeight: 44, justifyContent: "center" }}
+            >
+              <Text style={{ color: tokens.foreground, ...typeScale.secondary }}>
+                {prHref ? t("Open pull request") : t("Open cloud agent")}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export function SpecialMessageCard(props: SpecialMessageCardProps) {
+  const { special, actionProps, bots, members, onOpenBot, userBubble } = props;
+  const tokens = withUserBubble(mobileTokens(), userBubble);
+  const { t } = useI18n();
+  if (special.kind === "subagent") return <HelperMessageCard {...props} special={special} />;
+  if (special.kind === "cloud_agent") {
+    return (
+      <CloudAgentMessageCard special={special} actionProps={actionProps} userBubble={userBubble} />
     );
   }
   if (special.kind === "child_bot") {

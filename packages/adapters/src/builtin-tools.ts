@@ -847,7 +847,8 @@ export const builtinAgentTools: ConnectorTool[] = [
   },
   {
     name: "cloud_agent_status",
-    description: "Get status, branch, and PR url for a cloud coding agent.",
+    description:
+      "Get status, branch, PR url, and the latest run's final reply (summary) for a cloud coding agent.",
     inputSchema: {
       type: "object",
       properties: {

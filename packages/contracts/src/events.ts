@@ -260,6 +260,13 @@ export const MessageBlock = z.discriminatedUnion("kind", [
     branch: z.string().optional(),
     prUrl: z.string().optional(),
     latestRunId: z.string().optional(),
+    /** What the agent was launched with. */
+    prompt: z.string().optional(),
+    repository: z.string().optional(),
+    openPr: z.boolean().optional(),
+    imageCount: z.number().int().optional(),
+    /** The latest run's final reply. Untrusted remote text. */
+    summary: z.string().optional(),
   }),
   z.object({
     kind: z.literal("skill_draft"),

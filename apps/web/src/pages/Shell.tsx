@@ -18,6 +18,7 @@ import {
   isRunWorking,
   memberName,
   newClientId,
+  runningCloudAgent,
 } from "@rakazo/core";
 import { fetchFresh, writeSaved } from "@rakazo/core/query";
 import type { GroupAvatarMember } from "@rakazo/ui-web";
@@ -36,6 +37,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useParams } from "react-router-dom";
+import { PinnedCloudAgent } from "../components/CloudAgentCard";
 import { ComputerUpdateProgress } from "../components/ComputerUpdateProgress";
 import { CallCard, CallReturnBar } from "../components/call/CallCard";
 import { IncomingCall } from "../components/call/IncomingCall";
@@ -531,6 +533,10 @@ function SpaceShell() {
   const composerRunning = currentRuns.some((run) => isActive(run.status));
   const transcript = useMemo(
     () => foldPeerReplies(activeSnapshot?.messages ?? [], { includePeerReceipts: true }),
+    [activeSnapshot?.messages],
+  );
+  const pinnedCloudAgent = useMemo(
+    () => runningCloudAgent(activeSnapshot?.messages ?? []),
     [activeSnapshot?.messages],
   );
   const transcriptArtifactTarget = useMemo<ArtifactTarget>(
@@ -1115,6 +1121,7 @@ function SpaceShell() {
                 <Trans>Teaching in progress. Stop teaching before sending a new message.</Trans>
               </div>
             ) : null}
+            {pinnedCloudAgent ? <PinnedCloudAgent block={pinnedCloudAgent} /> : null}
             <Composer
               key={inGroup ? `group:${groupId}` : `bot:${active?.id}`}
               draftKey={inGroup ? `group:${groupId}` : `bot:${active?.id}`}

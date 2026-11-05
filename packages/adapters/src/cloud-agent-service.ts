@@ -19,7 +19,19 @@ export interface CloudAgentDeps {
 }
 
 export function cloudAgentBlock(agent: CloudAgent) {
-  return cloudAgentBlockFromPayload({ ...agent, agentId: agent.id });
+  const launch = cloudAgentLaunchSchema.safeParse(agent.launchRequest);
+  return cloudAgentBlockFromPayload({
+    ...agent,
+    agentId: agent.id,
+    ...(launch.success
+      ? {
+          prompt: launch.data.prompt,
+          repository: launch.data.repository,
+          openPr: launch.data.openPr,
+          imageCount: launch.data.images?.length,
+        }
+      : {}),
+  });
 }
 
 /** Queue an intent only after scope and owner checks. The worker owns remote I/O. */

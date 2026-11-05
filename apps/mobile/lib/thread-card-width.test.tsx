@@ -291,23 +291,15 @@ describe("thread cards", () => {
       width: "90%",
       borderRadius: 18,
     });
-    if (block.kind === "subagent") {
-      expect(styleOf(container.querySelector("button[aria-expanded]"))).toMatchObject({
-        paddingHorizontal: 16,
-        paddingTop: 14,
-        paddingBottom: 14,
-        minHeight: 44,
-      });
-      expect(container.querySelector("[data-symbol='chevron.down']")).not.toBeNull();
-      expect(container.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe(
-        "false",
-      );
-    } else {
-      expect(styleOf(container.firstElementChild)).toMatchObject({
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-      });
-    }
+    expect(styleOf(container.querySelector("button[aria-expanded]"))).toMatchObject(
+      block.kind === "subagent"
+        ? { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, minHeight: 44 }
+        : { paddingHorizontal: 16, paddingVertical: 14, minHeight: 44 },
+    );
+    expect(container.querySelector("[data-symbol='chevron.down']")).not.toBeNull();
+    expect(container.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe(
+      "false",
+    );
   });
 
   it.each([
@@ -358,14 +350,33 @@ describe("thread cards", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
   });
 
-  it("keeps cloud links accessible alongside text", () => {
+  it("opens a cloud agent card to its reply, launch settings and link", () => {
     const onLongPress = vi.fn();
-    renderBlocks([cloud, text("After")], { actionProps: { onLongPress } });
-    const link = container.querySelector('[role="link"]');
-    expect(link?.getAttribute("aria-label")).toBe("Remote task: finished");
-    act(() => (link as HTMLElement).click());
+    renderBlocks(
+      [
+        {
+          ...cloud,
+          agentId: "cloud-open",
+          prompt: "Check the weather",
+          repository: "https://example.test/repo",
+          summary: "Sunny",
+        },
+        text("After"),
+      ],
+      { actionProps: { onLongPress } },
+    );
+    const header = container.querySelector<HTMLElement>("button[aria-expanded]")!;
+    expect(header.getAttribute("aria-label")).toBe("Remote task: finished");
+    expect(container.textContent).not.toContain("Check the weather");
+    expect(container.querySelector('[role="link"]')).toBeNull();
+    act(() => header.click());
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Sunny");
+    expect(container.textContent).toContain("Check the weather");
+    expect(container.textContent).toContain("https://example.test/repo");
+    act(() => container.querySelector<HTMLElement>('[role="link"]')!.click());
     expect(Linking.openURL).toHaveBeenCalledWith("https://example.test/task");
-    act(() => link!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
+    act(() => header.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
     expect(onLongPress).toHaveBeenCalledTimes(1);
   });
 

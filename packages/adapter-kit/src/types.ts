@@ -1294,6 +1294,8 @@ export interface CloudAgentSnapshot {
   branch?: string;
   prUrl?: string;
   latestRunId?: string;
+  /** The latest run's final reply, once it has one. Untrusted remote text. */
+  summary?: string;
 }
 
 export interface CloudAgentReplyRequest {

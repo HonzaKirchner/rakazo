@@ -20,7 +20,7 @@ const ctx: AdapterContext = {
 interface FakeAgent {
   id: string;
   title: string;
-  runs: Array<{ id: string; status: string }>;
+  runs: Array<{ id: string; status: string; summary?: string }>;
   branch?: string;
   prUrl?: string;
 }
@@ -54,8 +54,8 @@ class FakeCoder {
     return this.runner(method, url.pathname.slice(APP.length).split("/").slice(1), body);
   };
 
-  finish(id: string) {
-    this.agents.get(id)!.runs.at(-1)!.status = "finished";
+  finish(id: string, summary?: string) {
+    Object.assign(this.agents.get(id)!.runs.at(-1)!, { status: "finished", summary });
   }
 
   private runner(method: string, parts: string[], body: Record<string, unknown> | undefined) {
@@ -100,6 +100,7 @@ function view(agent: FakeAgent, run = agent.runs.at(-1)!) {
     title: agent.title,
     status: run.status,
     runId: run.id,
+    ...(run.summary ? { summary: run.summary } : {}),
     ...(agent.branch ? { branch: agent.branch } : {}),
     ...(agent.prUrl ? { prUrl: agent.prUrl } : {}),
   };
@@ -150,15 +151,17 @@ describe("coder cloud agent provider (offline)", () => {
     await expect(provider.reply(first.id, { prompt: "Busy" }, ctx)).rejects.not.toBeInstanceOf(
       CloudAgentRequestRejected,
     );
-    coder.finish(first.id);
+    coder.finish(first.id, "Fixed the bug");
     const done = await provider.get(first.id, ctx);
     expect(done).toMatchObject({
       status: "finished",
+      summary: "Fixed the bug",
       prUrl: "https://github.com/example/demo/pull/1",
     });
     expect(done.branch).toMatch(/^agent\//);
     const followup = await provider.reply(first.id, { prompt: "Also add tests" }, ctx);
     expect(followup.latestRunId).not.toBe(first.latestRunId);
+    expect(followup).not.toHaveProperty("summary");
     expect((await provider.get(first.id, ctx, first.latestRunId)).status).toBe("finished");
     expect((await provider.cancel(first.id, ctx)).status).toBe("cancelled");
     expect((await provider.cancel(first.id, ctx)).status).toBe("cancelled");

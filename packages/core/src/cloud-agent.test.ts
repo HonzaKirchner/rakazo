@@ -1,8 +1,34 @@
+import type { MessageBlock } from "@rakazo/contracts";
 import { describe, expect, it } from "vitest";
-import { cloudAgentBlockFromPayload, cloudAgentHttpsUrl } from "./cloud-agent.js";
+import {
+  cloudAgentBlockFromPayload,
+  cloudAgentHttpsUrl,
+  runningCloudAgent,
+} from "./cloud-agent.js";
 import { projectMessages } from "./events.js";
 
 describe("shared cloud agent projection", () => {
+  it("carries launch settings and the final reply, dropping unsafe or empty values", () => {
+    const block = cloudAgentBlockFromPayload({
+      agentId: "agent",
+      title: "Weather",
+      status: "finished",
+      url: "https://example.test/agent",
+      prompt: "What is the weather?",
+      repository: "http://example.test/repo",
+      openPr: false,
+      imageCount: 0,
+      summary: "x".repeat(30_000),
+    });
+    expect(block).toMatchObject({ prompt: "What is the weather?", openPr: false });
+    expect(block).not.toHaveProperty("repository");
+    expect(block).not.toHaveProperty("imageCount");
+    expect(block.summary).toHaveLength(20_000);
+    expect(cloudAgentBlockFromPayload({ agentId: "a", summary: null })).not.toHaveProperty(
+      "summary",
+    );
+  });
+
   it("updates an existing card when replaying durable events", () => {
     const base = { threadId: "thread", createdAt: "2026-01-01T00:00:00Z", botId: "bot" };
     const block = cloudAgentBlockFromPayload({
@@ -52,5 +78,24 @@ describe("shared cloud agent projection", () => {
       "invalid",
     ])
       expect(cloudAgentHttpsUrl(url)).toBeUndefined();
+  });
+});
+
+const agent = (agentId: string, status: "running" | "finished") =>
+  ({ kind: "cloud_agent", agentId, title: agentId, status, url: "" }) satisfies MessageBlock;
+
+describe("runningCloudAgent", () => {
+  it("returns the newest running agent and ignores finished ones", () => {
+    expect(
+      runningCloudAgent([
+        { blocks: [agent("old", "running")] },
+        { blocks: [agent("new", "running"), { kind: "text", text: "hi" }] },
+        { blocks: [agent("done", "finished")] },
+      ])?.agentId,
+    ).toBe("new");
+  });
+
+  it("returns nothing when no agent is running", () => {
+    expect(runningCloudAgent([{ blocks: [agent("done", "finished")] }, {}])).toBeUndefined();
   });
 });

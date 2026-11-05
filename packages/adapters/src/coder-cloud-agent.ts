@@ -24,6 +24,7 @@ const agentSchema = z.object({
   runId: z.string().regex(/^[A-Za-z0-9_-]+$/),
   branch: z.string().optional(),
   prUrl: z.string().optional(),
+  summary: z.string().optional(),
 });
 const workspaceSchema = z.object({
   id: z.string().min(1),
@@ -170,6 +171,7 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
       latestRunId: agent.runId,
       ...(agent.branch ? { branch: agent.branch } : {}),
       ...(agent.prUrl ? { prUrl: agent.prUrl } : {}),
+      ...(agent.summary ? { summary: agent.summary } : {}),
     };
   }
 
