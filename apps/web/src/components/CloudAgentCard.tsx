@@ -1,22 +1,46 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChatMarkdown } from "@rakazo/chat-ui/web";
 import type { MessageBlock } from "@rakazo/contracts";
-import { cloudAgentHttpsUrl } from "@rakazo/core";
+import {
+  CLOUD_AGENT_SPARK_FRAMES,
+  CLOUD_AGENT_SPARK_STILL,
+  CLOUD_AGENT_SPARK_TICK_MS,
+  cloudAgentHttpsUrl,
+} from "@rakazo/core";
 import { cn } from "@rakazo/ui-web";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@rakazo/ui-web/components/ui/collapsible";
-import { ArrowUpRight, Ban, Check, Clock, GitPullRequest, LoaderCircle, X } from "lucide-react";
+import { ArrowUpRight, Ban, Check, Clock, GitPullRequest, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Shimmer } from "./ai/primitives";
 
 type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
 
+/** A running agent's star, blooming and folding back; still when motion is reduced. */
+function Spark() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = setInterval(
+      () => setFrame((current) => (current + 1) % CLOUD_AGENT_SPARK_FRAMES.length),
+      CLOUD_AGENT_SPARK_TICK_MS,
+    );
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <span className="text-xl leading-none">
+      <span className="motion-reduce:hidden">{CLOUD_AGENT_SPARK_FRAMES[frame]}</span>
+      <span className="hidden motion-reduce:inline">{CLOUD_AGENT_SPARK_STILL}</span>
+    </span>
+  );
+}
+
 const STATUS_STYLE = {
-  running: { icon: LoaderCircle, tile: "bg-foreground text-background", bar: "" },
+  running: { icon: null, tile: "bg-foreground text-background", bar: "" },
   finished: { icon: Check, tile: "bg-success/15 text-success", bar: "bg-success" },
   failed: { icon: X, tile: "bg-destructive/15 text-destructive", bar: "bg-destructive" },
   cancelled: { icon: Ban, tile: "bg-muted text-muted-foreground", bar: "bg-muted-foreground/40" },
@@ -222,10 +246,7 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
             aria-hidden
             className={cn("grid size-10 shrink-0 place-items-center rounded-xl", status.tile)}
           >
-            <StatusIcon
-              className={cn("size-5", running && "animate-spin motion-reduce:animate-none")}
-              strokeWidth={2.25}
-            />
+            {StatusIcon ? <StatusIcon className="size-5" strokeWidth={2.25} /> : <Spark />}
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <CollapsibleTrigger

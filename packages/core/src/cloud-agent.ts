@@ -1,5 +1,15 @@
 import type { MessageBlock } from "@rakazo/contracts";
 
+/**
+ * A running cloud agent's spinner: a star that blooms and folds back, one glyph per tick.
+ * U+FE0E keeps ✳ a text glyph instead of an emoji.
+ */
+const SPARK_GLYPHS = ["·", "✢", "✳︎", "✶", "✻", "✽"];
+export const CLOUD_AGENT_SPARK_FRAMES = [...SPARK_GLYPHS, ...SPARK_GLYPHS.slice(1, -1).reverse()];
+export const CLOUD_AGENT_SPARK_TICK_MS = 120;
+/** The glyph shown in place of the animation when motion is reduced. */
+export const CLOUD_AGENT_SPARK_STILL = "✻";
+
 /** Longest final reply kept from a remote agent. */
 export const CLOUD_AGENT_SUMMARY_MAX = 20_000;
 

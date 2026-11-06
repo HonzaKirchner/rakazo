@@ -1,17 +1,15 @@
 import { ChatMarkdown } from "@rakazo/chat-ui/native";
 import type { MessageBlock } from "@rakazo/contracts";
-import { cloudAgentHttpsUrl, plainTextFromMarkdown } from "@rakazo/core";
+import {
+  CLOUD_AGENT_SPARK_FRAMES,
+  CLOUD_AGENT_SPARK_STILL,
+  CLOUD_AGENT_SPARK_TICK_MS,
+  cloudAgentHttpsUrl,
+  plainTextFromMarkdown,
+} from "@rakazo/core";
 import { typeScale } from "@rakazo/ui-tokens";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -42,6 +40,25 @@ function RunningBar({ color }: { color: string }) {
   }, [opacity, reducedMotion]);
   const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return <Animated.View style={[{ height: 3, backgroundColor: color }, style]} />;
+}
+
+/** A running agent's star, blooming and folding back; still when motion is reduced. */
+function Spark({ color }: { color: string }) {
+  const reducedMotion = useReducedMotion();
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (reducedMotion) return;
+    const timer = setInterval(
+      () => setFrame((current) => (current + 1) % CLOUD_AGENT_SPARK_FRAMES.length),
+      CLOUD_AGENT_SPARK_TICK_MS,
+    );
+    return () => clearInterval(timer);
+  }, [reducedMotion]);
+  return (
+    <Text style={{ color, fontSize: 20, lineHeight: 24 }}>
+      {reducedMotion ? CLOUD_AGENT_SPARK_STILL : CLOUD_AGENT_SPARK_FRAMES[frame]}
+    </Text>
+  );
 }
 
 const STATUS_SYMBOL = {
@@ -197,7 +214,7 @@ export function CloudAgentCard({
             }}
           >
             {special.status === "running" ? (
-              <ActivityIndicator size="small" color={tokens.background} />
+              <Spark color={tokens.background} />
             ) : (
               <NativeSymbol
                 ios={STATUS_SYMBOL[special.status].ios}
