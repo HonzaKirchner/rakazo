@@ -32,7 +32,7 @@ function Spark() {
     return () => clearInterval(timer);
   }, []);
   return (
-    <span className="text-xl leading-none">
+    <span className="text-heading2 leading-none">
       <span className="motion-reduce:hidden">{CLOUD_AGENT_SPARK_FRAMES[frame]}</span>
       <span className="hidden motion-reduce:inline">{CLOUD_AGENT_SPARK_STILL}</span>
     </span>
@@ -161,7 +161,7 @@ function CardPreview({
     >
       <div
         ref={content}
-        className={cn("text-[14.5px] leading-[1.5]", !open && "pointer-events-none")}
+        className={cn("text-body", !open && "pointer-events-none")}
       >
         {children}
       </div>
@@ -225,7 +225,7 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   return (
     <div
       className={cn(
-        "rk-marquee-host group/agent relative w-xl max-w-full overflow-hidden rounded-2xl bg-card text-sm text-card-foreground ring-1",
+        "rk-marquee-host group/agent relative w-xl max-w-full overflow-hidden rounded-2xl bg-card text-body text-card-foreground ring-1",
         running
           ? "shadow-xl shadow-foreground/10 ring-foreground/20"
           : "shadow-lg shadow-foreground/5 ring-foreground/10",
@@ -253,11 +253,11 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
               disabled={!expandable}
               className="min-w-0 cursor-pointer rounded-md disabled:cursor-default text-start outline-none after:absolute after:inset-0 focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              <MarqueeLine className="text-[15px] font-semibold tracking-tight">
+              <MarqueeLine className="text-body-lg font-semibold tracking-tight">
                 {block.title}
               </MarqueeLine>
             </CollapsibleTrigger>
-            <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1.5 text-label text-muted-foreground">
               <span className="shrink-0 font-medium">{statusLabel}</span>
               {prHref || block.branch ? (
                 <>
@@ -273,7 +273,7 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
                       <Trans>Pull request</Trans>
                     </a>
                   ) : (
-                    <span className="min-w-0 truncate font-mono text-[12px]" dir="auto">
+                    <span className="min-w-0 truncate font-mono text-label" dir="auto">
                       {block.branch}
                     </span>
                   )}
@@ -319,7 +319,7 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
           <CollapsibleContent className={EXPAND_MOTION}>
             {/* Padding lives inside the panel so it folds all the way to nothing. */}
             <div className="flex flex-col gap-3 border-t border-border px-4 pt-3 pb-4">
-              <dl className="grid gap-2 text-[13px]">
+              <dl className="grid gap-2 text-body-sm">
                 {block.prompt && block.summary ? (
                   <div>
                     <dt className="text-muted-foreground">
@@ -335,7 +335,7 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
                     <dt className="text-muted-foreground">
                       <Trans>Repository</Trans>
                     </dt>
-                    <dd className="font-mono text-[12px] break-all">{block.repository}</dd>
+                    <dd className="font-mono text-label break-all">{block.repository}</dd>
                   </div>
                 ) : null}
                 {block.openPr ? (

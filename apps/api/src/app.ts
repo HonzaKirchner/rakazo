@@ -98,7 +98,6 @@ import {
   StripeBillingProvider,
   sandboxProviderOptionsFromEnv,
   stripeBillingConfigFromEnv,
-  toTeamChatInbound,
   UserDeviceHub,
   UserDevices,
   userDeviceForwardSecret,
@@ -140,6 +139,8 @@ import {
   requireMembership,
   rowSecurityWarning,
   runAsSystem,
+  SpaceDeletionInProgressError,
+  SpaceOwnerRequiredError,
   securityEventRetentionDays,
   verifyContentKeys,
 } from "@rakazo/db";
@@ -174,6 +175,7 @@ import {
 } from "./client-ip.js";
 import { cspReportRoutes } from "./csp-report.js";
 import { configuredEmailProvider } from "./email.js";
+import { mountEmailInboundRoute } from "./email-inbound.js";
 import type { AppEnv } from "./env.js";
 import { loadEnv } from "./env.js";
 import { healthRoutes } from "./health.js";
@@ -183,11 +185,7 @@ import { trackInFlightRequests } from "./in-flight-requests.js";
 import { mountLocalComputerHost } from "./local-settings.js";
 import { marketingEmailRoutes, sendWelcomeEmail } from "./marketing-email.js";
 import { moveMcpArgsIntoSecrets } from "./mcp-args-migration.js";
-import {
-  createMessagingInboundHandler,
-  teamChatSenderCanWakeMessageRoutines,
-  wakeMessageRoutines,
-} from "./messaging-inbound.js";
+import { createMessagingInboundHandler } from "./messaging-inbound.js";
 import { createMessagingReceipts } from "./messaging-receipts.js";
 import { mountMessagingWebhookRoutes } from "./messaging-webhook.js";
 import { monitoringRoutes } from "./monitoring.js";
@@ -199,8 +197,10 @@ import { mountScreenTarget } from "./screen-proxy.js";
 import { mountScriptAssets } from "./script-assets.js";
 import { createAuthResponseAudit } from "./security-audit.js";
 import { mountSharedPages } from "./shared-pages.js";
+import { afterSpaceDeparture } from "./space-departure.js";
 import { createSpeechSummarizer } from "./speech-summary.js";
-import { isDeferredReservationLost, TeamChatBridge } from "./team-chat-bridge.js";
+import { TeamChatBridge } from "./team-chat-bridge.js";
+import { createTeamChatInboundHandler } from "./team-chat-inbound.js";
 import { ModelTeamChatEngagementJudge } from "./team-chat-judge.js";
 import {
   PendingTeamChatInbound,
@@ -625,6 +625,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
           dataDir: env.dataDir,
           messagingInstallations,
           secrets,
+          events,
           billing,
         },
         userId,
@@ -694,17 +695,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     artifacts,
     connector: stack.connector,
     connectors: stack.connector,
-    listConnectedPluginSlugs: async (userId) => {
-      const provider = await integrationSettings.resolve("composio");
-      if (!provider) return [];
-      return provider.listConnectedExternalIds({
-        userId,
-        spaceId: "",
-        operationId: "connections.sync",
-        traceId: "connections.sync",
-        signal: AbortSignal.timeout(15_000),
-      });
-    },
+    listConnectedPluginSlugs: (userId) => integrationSettings.listConnectedPluginSlugs(userId),
     secrets: [
       env.deploymentModelKey ?? "",
       env.composioApiKey ?? "",
@@ -725,6 +716,8 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     phoneCallsEnabled: env.phoneCallsEnabled,
     phoneCallRingSeconds: env.phoneCallRingSeconds,
     phoneCallCooldownMinutes: env.phoneCallCooldownMinutes,
+    inboundEmailDomain: env.inboundEmail?.domain,
+    email,
     messaging: messaging ? createMessagingContextLoader(prisma) : undefined,
     web: createWebProvider(),
     cloudAgent,
@@ -890,6 +883,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       openSignup: env.messagingOpenSignup,
     },
     env: {
+      inboundEmailDomain: env.inboundEmail?.domain,
       phoneCallsEnabled: env.phoneCallsEnabled,
       phoneCallRingSeconds: env.phoneCallRingSeconds,
       ticketBoardEnabled,
@@ -912,6 +906,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       integrationsCatalogUrl: env.integrationsCatalogUrl,
       mcpAllowPrivateEndpoint: env.mcpAllowPrivateEndpoint,
       desktopHostChoiceEnabled: Boolean(env.desktopStackToken),
+      computerSettingsEnabled: env.computerSettingsEnabled,
       mcpStdioEnabled: env.mcpStdioEnabled,
       mcpStdioAllowedCommands: env.mcpStdioAllowedCommands,
     },
@@ -1001,6 +996,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   for (const [path, reason] of [
     ["/api/auth/*", "authentication"],
     ["/api/v1/bots/*", "bot webhook"],
+    ["/api/v1/email/*", "inbound email"],
     ["/api/v1/messaging/*", "messaging webhook"],
     ["/api/v1/phone/*", "messaging webhook"],
   ] as const) {
@@ -1017,7 +1013,14 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       let unfinished = false;
       for (const change of latest.values())
         await settleDirectoryChange(
-          { prisma, pushTokens, devices: deviceSessions, events },
+          {
+            prisma,
+            pushTokens,
+            devices: deviceSessions,
+            events,
+            afterDeparture: (actor, departure) =>
+              afterSpaceDeparture({ prisma, sandbox, jobs, events }, actor, departure),
+          },
           change,
         ).catch((error) => {
           unfinished = true;
@@ -1150,6 +1153,20 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     sessionActor,
   );
   mountWebhookHttpRoutes(app, { prisma, secrets, events, jobs });
+  if (env.inboundEmail) {
+    mountEmailInboundRoute(app, {
+      prisma,
+      events,
+      jobs,
+      ...env.inboundEmail,
+      storeAttachment: ({ spaceId, userId, ...input }) =>
+        storeInboundAttachment(
+          { prisma, artifacts, maxUploadSizeBytes: env.maxUploadSizeBytes },
+          { spaceId, userId },
+          input,
+        ),
+    });
+  }
   if (billing && billingProvider) {
     mountBillingRoutes(app, {
       billing,
@@ -1201,93 +1218,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         ),
     } satisfies Parameters<typeof createMessagingInboundHandler>[0];
     const inbound = createMessagingInboundHandler(inboundDeps);
-    const handleTeamChatInbound = async (
-      bridge: TeamChatBridge,
-      event: Parameters<typeof wakeMessageRoutines>[2],
-    ) => {
-      const mapped = toTeamChatInbound(event);
-      if (!mapped) {
-        await inbound(event);
-        return;
-      }
-      const canWake = await teamChatSenderCanWakeMessageRoutines(inboundDeps, event);
-      if (!canWake) {
-        await bridge.receive(mapped);
-        return;
-      }
-
-      // Persist a non-reconcilable row until routine routing owns or releases
-      // the message, so the timer cannot start a second TeamChat run.
-      const target = await bridge.receive(mapped, { queueAgent: false });
-      if (!target.deferred) return;
-      const leaseHeartbeat = await bridge.startDeferredReservationHeartbeat(
-        target.externalMessageId,
-      );
-      let woken = false;
-      bridge.markRoutineWakeInFlight(target.externalMessageId);
-      try {
-        const wakePromise = wakeMessageRoutines(inboundDeps, target, event, {
-          // Must match TeamChatBridge ExternalConversation / recovery provider.
-          deliveryProvider: bridge.providerId,
-          externalMessageId: target.externalMessageId,
-        });
-        try {
-          woken = await Promise.race([wakePromise, leaseHeartbeat.lost]);
-        } catch (error) {
-          if (isDeferredReservationLost(error)) {
-            // Lease loss must not start a fallback agent beside an in-flight
-            // wake: re-hold exclusive ownership while awaiting that wake, then
-            // resolve from its settled result.
-            let hold: { stop: () => void } | undefined;
-            try {
-              hold = await bridge.startDeferredReservationHeartbeat(target.externalMessageId);
-            } catch {
-              // Row already left deferred; wake CAS / resolve decide the winner.
-            }
-            try {
-              try {
-                woken = await wakePromise;
-              } catch (wakeError) {
-                const released = await bridge.resolveDeferredMessage(
-                  target.externalMessageId,
-                  "agent",
-                  mapped.kind,
-                );
-                if (!released) {
-                  throw new Error("Team chat deferred message ownership conflict", {
-                    cause: wakeError,
-                  });
-                }
-                await bridge.reconcileOnce();
-                getLogger().error(
-                  "team chat routine wake failed after deferred lease loss",
-                  wakeError,
-                );
-                return;
-              }
-            } finally {
-              hold?.stop();
-            }
-          } else {
-            await bridge.resolveDeferredMessage(target.externalMessageId, "agent", mapped.kind);
-            await bridge.reconcileOnce();
-            throw error;
-          }
-        }
-        const resolved = await bridge.resolveDeferredMessage(
-          target.externalMessageId,
-          woken ? "routine" : "agent",
-          mapped.kind,
-        );
-        if (!resolved) {
-          throw new Error("Team chat deferred message ownership conflict");
-        }
-        if (!woken) await bridge.reconcileOnce();
-      } finally {
-        bridge.clearRoutineWakeInFlight(target.externalMessageId);
-        leaseHeartbeat.stop();
-      }
-    };
+    const handleTeamChatInbound = createTeamChatInboundHandler(inboundDeps, inbound);
     const flushPendingTeamChatInbound = (bridge: TeamChatBridge) => {
       pendingTeamChatInbound.flush((event) => handleTeamChatInbound(bridge, event));
     };
@@ -1535,8 +1466,9 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       () => ({
         runtime: env.agentRuntime,
         sandbox: env.sandboxProvider,
-        composio: Boolean(stack.composio),
-        pipedream: Boolean(pipedream),
+        integrations: [stack.composio, pipedream].flatMap((provider) =>
+          provider ? [provider.describe().id] : [],
+        ),
         messaging: Boolean(messaging),
         email: email?.describe().id ?? null,
         billing: billingProvider?.describe().id ?? null,
@@ -1698,6 +1630,13 @@ export function handleRpcError(
   if (error instanceof IsolationError) {
     getLogger().warn(`rpc ${path.join("/")} not found`, { "error.stack": error.stack });
     throw new ORPCError("NOT_FOUND", { message: error.message, cause: error });
+  }
+  if (error instanceof SpaceOwnerRequiredError) {
+    throw new ORPCError("FORBIDDEN", { message: error.message, cause: error });
+  }
+  // A Space being deleted takes no new work; the caller learns it, nothing failed.
+  if (error instanceof SpaceDeletionInProgressError) {
+    throw new ORPCError("CONFLICT", { message: error.message, cause: error });
   }
   // The user's own voice account refused the request: theirs to fix.
   if (error instanceof VoiceAccountError) {
