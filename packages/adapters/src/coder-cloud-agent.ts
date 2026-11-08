@@ -13,9 +13,8 @@ import { readBodyCapped } from "./web-ssrf.js";
 
 /** The workspace app that serves the Claude Code runner (claude-relay). */
 const APP_SLUG = "claude";
-/** A workspace start takes a minute or two; there is no point asking much sooner. */
-const START_RETRY_MS = 15_000;
-const STARTABLE = new Set(["stopped", "failed", "canceled"]);
+/** The runner is unreachable while its workspace is stopped or starting, which is managed elsewhere. */
+const UNREACHABLE_RETRY_MS = 15_000;
 /** A refused launch or follow-up is resent once the run holding the checkout is likely over. */
 const LOCKED_RETRY_MS = 30_000;
 /** A dirty checkout waits for a person to deal with it, so asking often buys nothing. */
@@ -30,17 +29,12 @@ const agentSchema = z.object({
   prUrl: z.string().optional(),
   summary: z.string().optional(),
 });
-const workspaceSchema = z.object({
-  id: z.string().min(1),
-  latest_build: z.object({ status: z.string() }),
-});
 
 export interface CoderWorkspace {
   origin: string;
   owner: string;
   /** `workspace` or `workspace.agent`, as Coder's app paths take it. */
   workspaceAndAgent: string;
-  name: string;
 }
 
 /** Accepts the workspace's dashboard URL, such as https://coder.example.com/@alice/agents. */
@@ -52,9 +46,8 @@ export function parseCoderWorkspaceUrl(value: string | undefined): CoderWorkspac
   if (!match) return undefined;
   const owner = decodeURIComponent(match[1]!);
   const workspaceAndAgent = decodeURIComponent(match[2]!);
-  const name = workspaceAndAgent.split(".")[0]!;
-  if (!owner || !name) return undefined;
-  return { origin: url.origin, owner, workspaceAndAgent, name };
+  if (!owner || !workspaceAndAgent.split(".")[0]) return undefined;
+  return { origin: url.origin, owner, workspaceAndAgent };
 }
 
 export interface CoderCloudAgentOptions {
@@ -65,8 +58,8 @@ export interface CoderCloudAgentOptions {
 }
 
 /**
- * Runs agents through the Claude Code runner in one Coder workspace. Coder's wire
- * formats, workspace lifecycle and credential stay inside this adapter.
+ * Runs agents through the Claude Code runner (claude-relay) in one Coder workspace,
+ * using only the runner's API. Starting the workspace is left to whatever manages it.
  */
 export class CoderCloudAgentProvider implements CloudAgentProvider {
   private readonly workspace: CoderWorkspace;
@@ -186,7 +179,7 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     };
   }
 
-  /** A call to the runner. Anything that never reached it wakes the workspace and retries later. */
+  /** A call to the runner. Anything that never reached it is retried later. */
   private async app(
     method: string,
     path: string,
@@ -201,38 +194,12 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     if (code === "busy") return Busy.from(json as Record<string, unknown>);
     if (typeof code === "string") throw new Error(`Cloud agent request failed (${status})`);
     // Coder answered for an app it could not reach: the workspace is stopped or still starting.
-    return this.wake(signal);
+    throw new CloudAgentRetryLater("unavailable", UNREACHABLE_RETRY_MS);
   }
 
   private appPath(path: string) {
     const { owner, workspaceAndAgent } = this.workspace;
     return `/@${encodeURIComponent(owner)}/${encodeURIComponent(workspaceAndAgent)}/apps/${APP_SLUG}${path}`;
-  }
-
-  private async wake(signal: AbortSignal): Promise<never> {
-    const { owner, name } = this.workspace;
-    const found = await this.request(
-      "GET",
-      `/api/v2/users/${encodeURIComponent(owner)}/workspace/${encodeURIComponent(name)}`,
-      undefined,
-      signal,
-    );
-    if (found.status === 404) throw new CloudAgentRequestRejected("not_found");
-    const workspace = workspaceSchema.safeParse(found.json);
-    if (found.status !== 200 || !workspace.success)
-      throw new Error(`Coder workspace lookup failed (${found.status})`);
-    if (!STARTABLE.has(workspace.data.latest_build.status))
-      throw new CloudAgentRetryLater("unavailable", START_RETRY_MS);
-    const started = await this.request(
-      "POST",
-      `/api/v2/workspaces/${encodeURIComponent(workspace.data.id)}/builds`,
-      { transition: "start" },
-      signal,
-    );
-    // 409: another instance already started it.
-    if (started.status !== 201 && started.status !== 409)
-      throw new Error(`Coder workspace start failed (${started.status})`);
-    throw new CloudAgentRetryLater("unavailable", START_RETRY_MS);
   }
 
   private async request(method: string, path: string, body: unknown, signal: AbortSignal) {

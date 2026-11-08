@@ -251,7 +251,7 @@ CLOUD_AGENT_URL=https://coder.example.com/@example-owner/example-workspace
 CLOUD_AGENT_API_KEY=replace-with-a-coder-token
 ```
 
-`CLOUD_AGENT_URL` is the workspace's page in Coder, and the token must belong to the workspace owner. A stopped workspace is started on the next poll. Agents are bound to the workspace rather than the token, so an expired token can be replaced without losing them.
+`CLOUD_AGENT_URL` is the workspace's page in Coder, and the token must belong to the workspace owner. Rakazo only calls the runner and never starts the workspace: while it is stopped or starting, launches and follow-ups wait and are resent once the runner answers, so keep the workspace running by other means. Agents are bound to the workspace rather than the token, so an expired token can be replaced without losing them.
 
 ### Recovery
 

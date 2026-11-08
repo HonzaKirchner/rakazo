@@ -25,11 +25,12 @@ interface FakeAgent {
   prUrl?: string;
 }
 
-/** Coder's workspace API and app proxy in front of an in-memory runner. */
+/** Coder's app proxy in front of an in-memory runner. */
 class FakeCoder {
   token = "fake-token";
   workspaceStatus = "running";
-  starts = 0;
+  /** Requests that went anywhere but the runner. */
+  outside = 0;
   readonly agents = new Map<string, FakeAgent>();
   /** The branch the checkout sits on with changes no run made, while it is dirty. */
   dirty?: string;
@@ -45,14 +46,10 @@ class FakeCoder {
       return new Response(null, { status: 303, headers: { location: "/login" } });
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-    if (url.pathname === "/api/v2/users/alice/workspace/agents" && method === "GET")
-      return Response.json({ id: "ws-1", latest_build: { status: this.workspaceStatus } });
-    if (url.pathname === "/api/v2/workspaces/ws-1/builds" && method === "POST") {
-      this.starts += 1;
-      this.workspaceStatus = "starting";
-      return Response.json({}, { status: 201 });
+    if (!url.pathname.startsWith(`${APP}/`)) {
+      this.outside += 1;
+      return Response.json({}, { status: 404 });
     }
-    if (!url.pathname.startsWith(`${APP}/`)) return Response.json({}, { status: 404 });
     if (this.workspaceStatus !== "running")
       return Response.json({ message: "Agent is not connected" }, { status: 502 });
     return this.runner(method, url.pathname.slice(APP.length).split("/").slice(1), body);
@@ -137,15 +134,14 @@ function create() {
 }
 
 describe("coder cloud agent provider (offline)", () => {
-  it("starts a stopped workspace once and launches when it is running", async () => {
+  it("waits for a stopped workspace without starting it and launches once it runs", async () => {
     const { coder, provider } = create();
     coder.workspaceStatus = "stopped";
     const request = { idempotencyKey: "agent-1", prompt: "Add a README" };
     const stopped = await provider.launch(request, ctx).catch((error: unknown) => error);
     expect(stopped).toBeInstanceOf(CloudAgentRetryLater);
     expect(stopped).toMatchObject({ reason: "unavailable" });
-    await expect(provider.launch(request, ctx)).rejects.toBeInstanceOf(CloudAgentRetryLater);
-    expect(coder.starts).toBe(1);
+    expect(coder.outside).toBe(0);
     coder.workspaceStatus = "running";
     const first = await provider.launch(request, ctx);
     expect(first).toMatchObject({
@@ -248,9 +244,10 @@ describe("coder cloud agent composition", () => {
       origin: ORIGIN,
       owner: "alice",
       workspaceAndAgent: "agents",
-      name: "agents",
     });
-    expect(parseCoderWorkspaceUrl(`${ORIGIN}/@alice/agents.main/`)?.name).toBe("agents");
+    expect(parseCoderWorkspaceUrl(`${ORIGIN}/@alice/agents.main/`)?.workspaceAndAgent).toBe(
+      "agents.main",
+    );
     for (const value of [
       undefined,
       "http://coder.example.com/@alice/agents",
