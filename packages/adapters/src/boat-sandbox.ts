@@ -102,7 +102,7 @@ const BOAT_API_COMMAND_TIMEOUT_SECONDS = 600;
 const BOAT_TTL_SECONDS = 2 * 60 * 60;
 const BOAT_DELETE_TIMEOUT_MS = 60_000;
 const BOAT_GONE_CHECK_TIMEOUT_MS = 10_000;
-/** Under Boat's 600-second wait, so archiving stays one request instead of status polls. */
+/** Archiving runs detached: Node's fetch drops a response with no headers after 300 seconds. */
 const BOAT_ARCHIVE_TIMEOUT_MS = 9 * 60_000;
 /** A whole workspace downloads as one archive, so it gets longer than a single file. */
 const BOAT_ARCHIVE_TRANSFER_TIMEOUT_MS = 30 * 60_000;
@@ -652,6 +652,7 @@ export class BoatSandboxProvider implements SandboxProvider {
         undefined,
         BOAT_ARCHIVE_TIMEOUT_MS,
         context.signal,
+        true,
       );
       if (!result.timedOut && result.exitCode === BOAT_ARCHIVE_TOO_MANY_FILES) {
         throw new WorkspaceTooLargeError("files");
@@ -903,11 +904,15 @@ export class BoatSandboxProvider implements SandboxProvider {
     try {
       return await call();
     } catch (error) {
-      if (!(error instanceof BoatApiError) || !BOAT_NOT_RUNNING_CODES.has(error.code ?? "")) {
-        throw error;
-      }
+      if (!notRunning(error)) throw error;
       await this.ensureRunnable(id, signal);
-      return call();
+      try {
+        return await call();
+      } catch (retryError) {
+        // Boat reported the machine up, then refused again; a later attempt finds it settled.
+        if (notRunning(retryError)) throw new SandboxUnavailableError({ cause: retryError });
+        throw retryError;
+      }
     }
   }
 
@@ -1209,11 +1214,12 @@ export class BoatSandboxProvider implements SandboxProvider {
     cwd: string | undefined,
     timeoutMs: number,
     signal?: AbortSignal,
+    background = false,
   ): Promise<BoatCommandResult> {
     const marker = `/tmp/rakazo-command-${randomUUID()}.completed-124`;
     const wrapped = timeoutCommand(command, timeoutMs, marker);
     const timeoutSeconds = Math.ceil(timeoutMs / 1_000);
-    const detached = timeoutSeconds + 5 > BOAT_API_COMMAND_TIMEOUT_SECONDS;
+    const detached = background || timeoutSeconds + 5 > BOAT_API_COMMAND_TIMEOUT_SECONDS;
     try {
       const response = await this.whenRunnable(id, signal, () =>
         this.client.command(
@@ -1249,7 +1255,8 @@ export class BoatSandboxProvider implements SandboxProvider {
       }
       return { ...result, timedOut: true };
     } catch (error) {
-      if (signal?.aborted || isAbortError(error)) {
+      // A detached command outlives a follow that failed, so it is stopped too.
+      if (detached || signal?.aborted || isAbortError(error)) {
         await this.terminateCommand(id, marker).catch(() => undefined);
       }
       throw error;
@@ -1608,6 +1615,10 @@ function utf8Tail(text: string): string {
 }
 
 /** Boat refusing a machine type becomes the neutral size error; anything else is unchanged. */
+function notRunning(error: unknown): error is BoatApiError {
+  return error instanceof BoatApiError && BOAT_NOT_RUNNING_CODES.has(error.code ?? "");
+}
+
 function boatSizeError(error: unknown): unknown {
   if (!(error instanceof BoatApiError)) return error;
   if (error.code === "machine_class_plan_required") {

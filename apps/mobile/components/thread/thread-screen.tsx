@@ -355,6 +355,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     foreground,
     focused,
     sessionEpoch,
+    userId,
     activeBotId,
     activeGroupId,
     readVisibleTarget,
@@ -686,6 +687,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
         ) : null}
         <RunErrorSheet
           details={detailsOpen ? runError : null}
+          summary={normalizedRunError?.summary}
           onClose={() => setDetailsOpen(false)}
           action={runErrorAction}
         />

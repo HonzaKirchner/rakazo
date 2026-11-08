@@ -1781,7 +1781,10 @@ export const builtinAgentTools: ConnectorTool[] = [
           type: "string",
           description: "Exact name of the target bot when bot_id is omitted.",
         },
-        message: { type: "string", description: "What to send." },
+        message: {
+          type: "string",
+          description: "What to send. Send code, logs or other long content as files instead.",
+        },
         files: {
           type: "array",
           items: { type: "string" },
@@ -1815,7 +1818,11 @@ export const builtinAgentTools: ConnectorTool[] = [
           type: "string",
           description: "Exact name of the target member when bot_id is omitted.",
         },
-        message: { type: "string", description: "What the receiving bot should do next." },
+        message: {
+          type: "string",
+          description:
+            "What the receiving bot should do next. Send code, logs or other long content as files instead.",
+        },
         files: {
           type: "array",
           items: { type: "string" },
