@@ -17,6 +17,13 @@ export function Shimmer({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** A spark that twinkles through its glyphs while work is in progress. */
+export function Spark({ className }: { className?: string }) {
+  return (
+    <span aria-hidden className={cn("bui-spark inline-block w-[1em] text-center", className)} />
+  );
+}
+
 // Chevron wavefront: each 3×3 cell fires by column distance from the center row.
 const CHEVRON_DELAYS = Array.from({ length: 9 }, (_, i) => {
   const row = Math.floor(i / 3);

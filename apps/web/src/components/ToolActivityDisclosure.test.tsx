@@ -150,9 +150,11 @@ describe("ToolSteps", () => {
     expect(html).toContain("+3 earlier steps");
     for (const hidden of ["step-0<", "step-1<", "step-2<"]) expect(html).not.toContain(hidden);
     for (let i = 3; i < steps.length; i++) expect(html).toContain(`step-${i}<`);
-    // The pulsing marker stays on the latest step after the window shifts the indexes.
-    expect(html).toMatch(/◷<\/span><span[^>]*>step-8</);
-    expect(html.match(/◷/g)).toHaveLength(1);
+    // The working spark stays on the latest step after the window shifts the indexes.
+    expect(html).toMatch(
+      /bui-spark[^>]*><\/span><span[^>]*data-current="true"[^>]*><span[^>]*>step-8</,
+    );
+    expect(html.match(/bui-spark/g)).toHaveLength(1);
   });
 
   it("uses the singular for one hidden step", () => {

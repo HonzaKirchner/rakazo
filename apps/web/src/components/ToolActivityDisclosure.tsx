@@ -11,6 +11,7 @@ import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { Fragment } from "react";
 import { toolStepCount } from "../lib/tool-activity-view";
+import { Shimmer, Spark } from "./ai/primitives";
 
 type ToolStep = Extract<ThreadMessage["blocks"][number], { kind: "steps" }>["steps"][number];
 
@@ -47,20 +48,29 @@ export function ToolSteps({
               </div>
             ) : null}
             <div className="flex min-w-0 items-center gap-2 leading-5">
-              <span
-                className={`text-label ${isCurrent ? "text-warning" : "text-success"}`}
-                style={{ animation: isCurrent ? "rkPulse 1.2s ease-in-out infinite" : undefined }}
-              >
-                {isCurrent ? "◷" : "✓"}
-              </span>
+              {isCurrent ? (
+                <Spark className="text-label text-warning" />
+              ) : (
+                <span className="inline-block w-[1em] text-center text-label text-success">✓</span>
+              )}
               <span
                 className={`min-w-0 flex-1 truncate text-body-sm ${
                   isCurrent ? "text-foreground" : "text-muted-foreground"
                 }`}
                 title={step.label}
+                data-current={isCurrent || undefined}
               >
-                {step.label}
-                {step.count > 1 ? ` ×${step.count}` : ""}
+                {isCurrent ? (
+                  <Shimmer>
+                    {step.label}
+                    {step.count > 1 ? ` ×${step.count}` : ""}
+                  </Shimmer>
+                ) : (
+                  <>
+                    {step.label}
+                    {step.count > 1 ? ` ×${step.count}` : ""}
+                  </>
+                )}
               </span>
             </div>
           </Fragment>
