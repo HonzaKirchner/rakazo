@@ -4877,6 +4877,7 @@ msgstr "行なし"
 msgid "No runs match these filters."
 msgstr "このフィルターに一致する実行はありません。"
 
+#: src/pages/ActivityList.tsx
 #: src/pages/RoutineRunHistory.tsx
 msgid "No runs yet"
 msgstr "実行はまだありません"

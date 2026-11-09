@@ -4877,6 +4877,7 @@ msgstr "Nenhuma linha"
 msgid "No runs match these filters."
 msgstr "Nenhuma execução corresponde a estes filtros."
 
+#: src/pages/ActivityList.tsx
 #: src/pages/RoutineRunHistory.tsx
 msgid "No runs yet"
 msgstr "Nenhuma execução ainda"

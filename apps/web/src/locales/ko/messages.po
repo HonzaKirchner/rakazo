@@ -4877,6 +4877,7 @@ msgstr "행 없음"
 msgid "No runs match these filters."
 msgstr "이 필터와 일치하는 실행이 없습니다."
 
+#: src/pages/ActivityList.tsx
 #: src/pages/RoutineRunHistory.tsx
 msgid "No runs yet"
 msgstr "아직 실행 기록이 없습니다"

@@ -4877,6 +4877,7 @@ msgstr "Нет строк"
 msgid "No runs match these filters."
 msgstr "Нет запусков, соответствующих этим фильтрам."
 
+#: src/pages/ActivityList.tsx
 #: src/pages/RoutineRunHistory.tsx
 msgid "No runs yet"
 msgstr "Запусков пока нет"
