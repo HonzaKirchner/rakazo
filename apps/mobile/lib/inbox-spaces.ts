@@ -1,3 +1,4 @@
+import { ph, t } from "@lingui/core/macro";
 import type { SpaceBot, SpaceGroup } from "@rakazo/contracts";
 import {
   botAvatarActivity,
@@ -7,14 +8,20 @@ import {
 } from "@rakazo/core";
 import { rpc, selectedSpaceId } from "./api";
 import { adoptDeletedSpaceFallback, selectSpace } from "./api-server";
-import { t } from "./i18n";
 import { mobileLogoAvatarActivity } from "./logo-avatar-activity";
 import type { MobileBot, MobileGroup, MobileSpace } from "./mobile-types";
 import type { InboxSignal } from "./offscreen-unreads";
 
 export type InboxSpace = Pick<
   MobileSpace,
-  "id" | "name" | "isDefault" | "hasContent" | "canDelete" | "botCount" | "botSections"
+  | "id"
+  | "name"
+  | "isDefault"
+  | "hasContent"
+  | "canDelete"
+  | "botCount"
+  | "botSections"
+  | "hasGuests"
 > & {
   bots: (MobileBot | SpaceBot)[];
   groups: (MobileGroup | SpaceGroup)[];
@@ -90,9 +97,9 @@ export function canDeleteInboxSpace(space: Pick<InboxSpace, "isDefault" | "canDe
 export function deleteSpaceTitle(space: Pick<InboxSpace, "name" | "botCount" | "bots">) {
   // Servers before botCount only listed the member's active bots.
   const bots = space.botCount ?? space.bots.length;
-  if (bots === 0) return t("Delete {name}?", { name: space.name });
-  if (bots === 1) return t("Delete {name} and its bot?", { name: space.name });
-  return t("Delete {name} and its {count} bots?", { name: space.name, count: bots });
+  if (bots === 0) return t`Delete ${ph({ name: space.name })}?`;
+  if (bots === 1) return t`Delete ${ph({ name: space.name })} and its bot?`;
+  return t`Delete ${ph({ name: space.name })} and its ${ph({ count: bots })} bots?`;
 }
 
 /** Only headings with no chats under them, counting chats in collapsed sections. */
@@ -142,12 +149,13 @@ export function spaceInboxItems(
     const snoozed = allChats.filter(isSnoozed);
     const chats = allChats.filter((item) => !isSnoozed(item));
     const items: InboxSpaceItem[] = [];
-    if (spaces.length > 1 || !space.isDefault || allChats.length === 0) {
+    // A Space with guests keeps its heading, which marks them, even as the only one.
+    if (spaces.length > 1 || !space.isDefault || allChats.length === 0 || space.hasGuests) {
       items.push({ type: "heading", key: space.id, title: space.name, space });
     }
     for (const group of groupBotsForSidebar(chats, space.botSections, {
       includeEmptySections: true,
-      labels: { pinned: t("Pinned"), unassigned: t("Unassigned") },
+      labels: { pinned: t`Pinned`, unassigned: t`Unassigned` },
     })) {
       if (group.title) {
         const key = `${space.id}:${group.key}`;
@@ -177,7 +185,7 @@ export function spaceInboxItems(
       items.push({
         type: "heading",
         key,
-        title: t("Snoozed"),
+        title: t`Snoozed`,
         collapsed: folded,
         count: snoozed.length,
       });

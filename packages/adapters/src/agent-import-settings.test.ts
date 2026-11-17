@@ -1,10 +1,11 @@
-import { agentImportUpload, readAgentImportFolder } from "@rakazo/core";
+import { agentImportUpload, parseGrokBotExport, readAgentImportFolder } from "@rakazo/core";
 import { describe, expect, it } from "vitest";
 import {
   intervalCron,
   normalizeImportProvider,
   parseDotEnv,
   readAgentImportSettings,
+  readGrokBotImportSettings,
 } from "./agent-import-settings.js";
 
 // Shaped like a real `~/.openclaw/openclaw.json` (JSON5: comments and trailing commas).
@@ -313,10 +314,10 @@ describe("OpenClaw settings", () => {
   it("turns user jobs into routines and skips OpenClaw's own jobs", () => {
     const settings = openclaw(false);
     expect(
-      settings.routines.map(({ name, prompt, cron, timezone, warnings }) => ({
+      settings.routines.map(({ name, prompt, trigger, timezone, warnings }) => ({
         name,
         prompt,
-        cron,
+        cron: trigger.crons[0],
         timezone,
         warnings,
       })),
@@ -389,7 +390,7 @@ describe("Hermes settings", () => {
     });
     expect(settings.mcpServers.map((server) => server.config.slug)).toEqual(["docs", "files"]);
     expect(settings.mcpServers[1]!.warnings).toEqual(["dropped_settings", "local_path"]);
-    expect(settings.routines.map((routine) => [routine.name, routine.cron])).toEqual([
+    expect(settings.routines.map((routine) => [routine.name, routine.trigger.crons[0]])).toEqual([
       ["morning", "0 9 * * *"],
       ["check", "0 */2 * * *"],
     ]);
@@ -662,4 +663,169 @@ describe("credentials inside MCP URLs and arguments", () => {
     ]);
     expect(JSON.stringify(settings)).not.toContain("placeholder-");
   });
+});
+
+describe("Grok Bot export", () => {
+  const routine = {
+    instruction: "Run the weekly account review.",
+    trigger: "schedule",
+    schedule_cron: "0 8 * * 1-5",
+  };
+  const [bot] = parseGrokBotExport(
+    JSON.stringify({
+      format: "grok-bot-export",
+      version: 1,
+      bots: [
+        {
+          name: "Bramble",
+          skills: [{ name: "Weekly Account Health", instructions: "List accounts at risk." }],
+          routines: [
+            {
+              ...routine,
+              name: "Monday review",
+              timezone: "America/New_York",
+              skills: ["Weekly Account Health"],
+            },
+            { ...routine, name: "Elsewhere", timezone: "Mars/Base" },
+            { name: "Support", instruction: "Answer #support.", trigger: "slack" },
+            { name: "Unread", trigger: "schedule", schedule_cron: "0 9 * * *" },
+          ],
+          apps: [
+            {
+              name: "Linear",
+              mcp_url: "https://mcp.example.com/mcp",
+              headers: { Authorization: "" },
+            },
+            { name: "Plain", mcp_url: "http://mcp.example.com/mcp" },
+            { name: "Signed", mcp_url: "https://mcp.example.com/mcp?sig=abc123" },
+            { name: "Keyed", mcp_url: "https://mcp.example.com/a1b2c3d4e5f6g7h8i9j0k1l2m3" },
+            { name: "Gmail" },
+            // Built from parts so no scanner mistakes this file for a leak.
+            { name: ["gh", "p_", "Ab3dE5gH7jK9mN1pQ2rS4tU6vW8xY0zAb3dE5"].join("") },
+            {
+              name: "Headed",
+              mcp_url: "https://mcp.example.com/mcp",
+              headers: { [["gh", "p_", "Ab3dE5gH7jK9mN1pQ2rS4tU6vW8xY0zAb3dE5"].join("")]: "" },
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const settings = readGrokBotImportSettings(bot!, { messageProviders: [], email: false });
+
+  it("turns scheduled routines into routines that use the saved skill names", () => {
+    expect(settings.routines).toMatchObject([
+      {
+        id: "routine:0",
+        name: "Monday review",
+        trigger: { crons: ["0 8 * * 1-5"] },
+        timezone: "America/New_York",
+        prompt: "Run the weekly account review.\n\nUse these skills: @weekly-account-health.",
+        warnings: [],
+      },
+      { id: "routine:1", timezone: null, warnings: ["changed_schedule"] },
+    ]);
+  });
+
+  it("carries remote MCP addresses without a key and lists what is left behind", () => {
+    expect(settings.mcpServers).toMatchObject([
+      {
+        id: "mcp:0",
+        title: "Linear",
+        config: { transport: "streamable_http", endpoint: "https://mcp.example.com/mcp" },
+        status: { kind: "needs_setup", needs: [{ kind: "credentials", names: ["Authorization"] }] },
+      },
+    ]);
+    expect(settings.skipped).toEqual([
+      { path: "routines: Unread", reason: "unsupported" },
+      { path: "apps: Plain", reason: "unsupported" },
+      { path: "apps: Signed", reason: "unsupported" },
+      { path: "apps: Keyed", reason: "unsupported" },
+      { path: "apps: Gmail", reason: "reconnect" },
+      { path: "apps: 6", reason: "unsupported" },
+      { path: "apps: 7", reason: "unsupported" },
+    ]);
+    expect(settings.model).toBeNull();
+    expect(settings.apiKeys).toEqual([]);
+  });
+});
+
+it("keeps scheduled routine conditions and refuses oversized prompts", () => {
+  const read = (instruction: string) => {
+    const [bot] = parseGrokBotExport(
+      JSON.stringify({
+        bots: [
+          {
+            name: "Example",
+            routines: [
+              {
+                name: "Daily",
+                instruction,
+                cron: "0 8 * * *",
+                schedule_text: "Every morning",
+                trigger_details: "Only when a report is due",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    return readGrokBotImportSettings(bot!, { messageProviders: [], email: false });
+  };
+  expect(read("Review reports").routines[0]?.prompt).toBe(
+    "Review reports\n\nOnly when a report is due\n\nEvery morning",
+  );
+  expect(read("x".repeat(100001)).routines).toEqual([]);
+  expect(read("x".repeat(100001)).skipped).toHaveLength(1);
+});
+
+it("turns events this server receives into paused event routines with their trigger first", () => {
+  const event = (trigger: string, trigger_details = "") => ({
+    name: trigger,
+    instruction: "Handle it.",
+    trigger,
+    trigger_details,
+    skills: ["Triage"],
+  });
+  const [bot] = parseGrokBotExport(
+    JSON.stringify({
+      bots: [
+        {
+          name: "Example",
+          skills: [{ name: "Triage", instructions: "Sort by urgency." }],
+          routines: [
+            event("slack", "#support\nchannel"),
+            { ...event("github", "acme/app"), schedule_text: "when a pull request opens" },
+            event("linear"),
+            event("email", "from Sam"),
+            event("other", "calendar invites"),
+          ],
+        },
+      ],
+    }),
+  );
+  const read = (available: { messageProviders: string[]; email: boolean }) =>
+    readGrokBotImportSettings(bot!, available);
+  const all = read({ messageProviders: ["slack"], email: true });
+  expect(all.routines.map((routine) => [routine.id, routine.trigger])).toEqual([
+    ["routine:0", { crons: [], messageProvider: "slack" }],
+    ["routine:1", { crons: [], githubEnabled: true }],
+    ["routine:2", { crons: [], webhookEnabled: true }],
+    ["routine:3", { crons: [], emailSenders: "owner" }],
+  ]);
+  expect(all.routines[0]?.prompt).toBe(
+    "Trigger: slack (#support channel)\n\nHandle it.\n\nUse these skills: @triage.",
+  );
+  expect(all.routines[1]?.prompt).toMatch(
+    /^Trigger: github \(acme\/app; when a pull request opens\)\n/,
+  );
+  expect(all.routines[2]?.prompt).toBe(
+    "Trigger: linear\n\nHandle it.\n\nUse these skills: @triage.",
+  );
+  // The rest stay in the memory note, which the plan writes.
+  expect(all.skipped).toEqual([]);
+  expect(
+    read({ messageProviders: [], email: false }).routines.map((routine) => routine.id),
+  ).toEqual(["routine:1", "routine:2"]);
 });

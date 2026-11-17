@@ -10,9 +10,6 @@ import type { MobileGroup } from "./mobile-types";
 import { addToSearchInbox, setSearchInbox, useInboxGroup } from "./search-inbox";
 import { threadGroupMembers } from "./thread-snapshot";
 
-vi.mock("./api-server", () => ({}));
-vi.mock("./api-auth", () => ({}));
-vi.mock("./api-live", () => ({}));
 vi.mock("./api", () => ({ currentApiBase: () => "http://api.test" }));
 vi.mock("./session", () => ({
   currentSessionGeneration: () => 1,
@@ -30,7 +27,6 @@ vi.mock("../components/thread-header-right", () => ({ threadHeaderRight: () => (
 vi.mock("./appearance", () => ({ mobileTokens: () => ({}) }));
 vi.mock("./archived-chats", () => ({ notifyArchivedChatsChanged: vi.fn() }));
 vi.mock("./bot-lifecycle", () => ({}));
-vi.mock("./i18n", () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock("./native", () => ({ useResolvedAppearance: () => "light" }));
 vi.mock("./thread-edges", () => ({ threadEdgeOptions: () => ({}) }));
 vi.mock("./user-error", () => ({ errorText: String }));

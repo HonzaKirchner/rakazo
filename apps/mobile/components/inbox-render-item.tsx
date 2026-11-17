@@ -1,5 +1,7 @@
 import type { MenuAction } from "@expo/ui/community/menu";
 import { MenuView } from "@expo/ui/community/menu";
+import { ph } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react/macro";
 import type { SpaceBot, SpaceGroup } from "@rakazo/contracts";
 import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
@@ -8,11 +10,10 @@ import type { PressableProps } from "react-native";
 import { Platform, Pressable, Text, View } from "react-native";
 import type { ResolvedAppearance } from "../lib/appearance";
 import { AvatarRow } from "../lib/avatar-life";
-import { useI18n } from "../lib/i18n";
 import type { InboxItem, InboxSpace } from "../lib/inbox-spaces";
 import { canDeleteInboxSpace, inboxItemKey } from "../lib/inbox-spaces";
 import type { MobileBot, MobileBotSection, MobileGroup } from "../lib/mobile-types";
-import { useThemedStyles } from "../lib/native";
+import { native, useThemedStyles } from "../lib/native";
 import type { useInboxChatActions } from "../lib/use-inbox-chat-actions";
 import { DragSafePressable } from "./drag-safe-pressable";
 import { createHomeStyles } from "./home-styles";
@@ -38,11 +39,11 @@ export function InboxListFooter({
   archivedCount: number;
 }) {
   const styles = useThemedStyles(createHomeStyles);
-  const { t } = useI18n();
+  const { t } = useLingui();
   const router = useRouter();
   return (
     <>
-      {createHint ? <Text style={styles.empty}>{t("Tap + to create a bot")}</Text> : null}
+      {createHint ? <Text style={styles.empty}>{t`Tap + to create a bot`}</Text> : null}
       <ArchivedChatsRow count={archivedCount} onPress={() => router.push("/archived-bots")} />
     </>
   );
@@ -136,6 +137,7 @@ type HeadingPress = Pick<
 
 function SpaceHeading({
   title,
+  hasGuests,
   selected,
   busy,
   onPress,
@@ -143,6 +145,8 @@ function SpaceHeading({
   appearance,
 }: {
   title: string;
+  /** Someone from outside the Space's organization belongs to it. */
+  hasGuests: boolean;
   selected: boolean;
   busy: boolean;
   onPress: () => void;
@@ -150,19 +154,31 @@ function SpaceHeading({
   appearance: ResolvedAppearance;
 }) {
   const styles = useThemedStyles(createHomeStyles);
+  const { t } = useLingui();
   return (
     <HeadingWithMenu space menu={menu} appearance={appearance}>
       {(press) => (
         <DragSafePressable
           accessibilityRole="button"
-          accessibilityLabel={title}
+          // The globe is drawn only; its meaning is read with the Space's name.
+          accessibilityLabel={hasGuests ? `${title}, ${t`Shared with guests`}` : title}
           accessibilityState={{ selected, disabled: busy }}
           disabled={busy}
           onPress={onPress}
           {...press}
           style={({ pressed }) => [styles.spaceSelect, pressed && styles.rowPressed]}
         >
-          <Text style={styles.spaceTitle}>{title}</Text>
+          <View style={styles.spaceTitleRow}>
+            {hasGuests ? (
+              <NativeSymbol
+                ios="globe"
+                android="globe-outline"
+                size={13}
+                color={native.secondaryLabel}
+              />
+            ) : null}
+            <Text style={styles.spaceTitle}>{title}</Text>
+          </View>
         </DragSafePressable>
       )}
     </HeadingWithMenu>
@@ -174,6 +190,7 @@ function SectionHeading({
   count,
   collapsed,
   onPress,
+  onRename,
   onDelete,
   appearance,
 }: {
@@ -181,20 +198,25 @@ function SectionHeading({
   count?: number;
   collapsed: boolean;
   onPress: () => void;
+  /** The name prompt is iOS-only, so other platforms leave this out. */
+  onRename?: () => void;
   onDelete?: () => void;
   appearance: ResolvedAppearance;
 }) {
-  const { t } = useI18n();
+  const { t } = useLingui();
   return (
     <HeadingWithMenu
       menu={
         onDelete
           ? {
               actions: [
-                { id: "delete", title: t("Delete section"), image: "trash", destructive: true },
+                ...(onRename
+                  ? [{ id: "rename", title: t`Rename section`, image: "pencil" as const }]
+                  : []),
+                { id: "delete", title: t`Delete section`, image: "trash", destructive: true },
               ],
-              label: t("Section actions for {name}", { name: title }),
-              onAction: onDelete,
+              label: t`Section actions for ${ph({ name: title })}`,
+              onAction: (id) => (id === "rename" ? onRename?.() : onDelete()),
             }
           : undefined
       }
@@ -225,6 +247,7 @@ export function useInboxRenderItem({
   deleteSection,
   editSectionFromMenu,
   groupAction,
+  promptRenameSection,
   spaceId,
   openBot,
   openGroup,
@@ -244,6 +267,7 @@ export function useInboxRenderItem({
   | "organizeFromMenu"
   | "editSectionFromMenu"
   | "deleteSection"
+  | "promptRenameSection"
   | "snoozeChat"
 > & {
   appearance: ResolvedAppearance;
@@ -268,7 +292,7 @@ export function useInboxRenderItem({
   toggleCollapsed: (key: string) => void;
 }) {
   const styles = useThemedStyles(createHomeStyles);
-  const { t } = useI18n();
+  const { t } = useLingui();
   const router = useRouter();
   return useCallback(
     ({ item }: { item: InboxItem }) => {
@@ -291,6 +315,7 @@ export function useInboxRenderItem({
         item.space ? (
           <SpaceHeading
             title={item.title}
+            hasGuests={item.space.hasGuests === true}
             selected={item.space.id === spaceId}
             busy={spaceBusy}
             onPress={() => {
@@ -303,17 +328,17 @@ export function useInboxRenderItem({
                     actions: [
                       {
                         id: "new-bot",
-                        title: t("New bot"),
+                        title: t`New bot`,
                         image: "person.crop.circle.badge.plus",
                         disabled: spaceBusy || !!spaceRecoveryId,
                       },
-                      { id: "members", title: t("Members"), image: "person.2" },
-                      { id: "settings", title: t("Settings"), image: "gearshape" },
+                      { id: "members", title: t`Members`, image: "person.2" },
+                      { id: "settings", title: t`Settings`, image: "gearshape" },
                       ...(canDeleteInboxSpace(item.space)
                         ? [
                             {
                               id: "delete",
-                              title: t("Delete space"),
+                              title: t`Delete space`,
                               image: "trash" as const,
                               destructive: true,
                               disabled: spaceBusy || !!spaceRecoveryId,
@@ -321,7 +346,7 @@ export function useInboxRenderItem({
                           ]
                         : []),
                     ],
-                    label: t("Space actions for {name}", { name: item.title }),
+                    label: t`Space actions for ${ph({ name: item.title })}`,
                     onAction: (id) => {
                       if (!item.space) return;
                       if (id === "new-bot") createBotInSpace(item.space.id);
@@ -342,6 +367,14 @@ export function useInboxRenderItem({
             count={item.collapsed ? (item.count ?? 0) : undefined}
             collapsed={item.collapsed === true}
             onPress={() => toggleCollapsed(item.key)}
+            onRename={
+              Platform.OS === "ios" && item.sectionId
+                ? () => {
+                    if (item.sectionId)
+                      promptRenameSection({ id: item.sectionId, name: item.title }, spaceId);
+                  }
+                : undefined
+            }
             onDelete={
               sharing || !item.sectionId
                 ? undefined
@@ -387,6 +420,7 @@ export function useInboxRenderItem({
       confirmDeleteSpace,
       createBotInSpace,
       deleteSection,
+      promptRenameSection,
       day,
       now,
       editSectionFromMenu,

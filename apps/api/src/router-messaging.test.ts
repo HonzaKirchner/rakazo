@@ -1,6 +1,7 @@
 import type { InferRouterInitialContext } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import type { Actor } from "@rakazo/contracts";
+import { deferred } from "@rakazo/core/test-async";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import type { RouterDeps } from "./router.js";
@@ -226,26 +227,28 @@ function messagingDeps(
         where,
       }: {
         where: {
-          idempotencyKey?: string;
-          status?: string;
-          OR?: Array<{ status?: string; providerHandle?: null }>;
+          idempotencyKey?: string | { in: string[] };
+          status?: string | { in: string[] };
+          OR?: Array<{ status?: string | { in: string[] }; providerHandle?: null }>;
         };
       }) => {
+        const matches = (value: unknown, condition: string | { in: string[] } | undefined) =>
+          condition === undefined ||
+          (typeof condition === "string"
+            ? value === condition
+            : condition.in.includes(value as string));
+        const clause = (
+          row: Record<string, unknown>,
+          part: { status?: string | { in: string[] }; providerHandle?: null },
+        ) =>
+          matches(row.status ?? "pending", part.status) &&
+          (!("providerHandle" in part) || row.providerHandle == null);
         let count = 0;
         for (let i = outboundRows.length - 1; i >= 0; i -= 1) {
           const row = outboundRows[i]!;
-          if (where.idempotencyKey && row.idempotencyKey !== where.idempotencyKey) continue;
-          if (where.status && row.status !== where.status) continue;
-          if (where.OR) {
-            const matches = where.OR.some((clause) => {
-              if (clause.status && row.status !== clause.status) return false;
-              if ("providerHandle" in clause && clause.providerHandle === null) {
-                return row.providerHandle == null;
-              }
-              return true;
-            });
-            if (!matches) continue;
-          }
+          if (!matches(row.idempotencyKey, where.idempotencyKey)) continue;
+          if (!matches(row.status ?? "pending", where.status)) continue;
+          if (where.OR && !where.OR.some((part) => clause(row, part))) continue;
           outboundRows.splice(i, 1);
           count += 1;
         }
@@ -260,9 +263,29 @@ function messagingDeps(
     async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
   );
   const enqueue = vi.fn(async () => undefined);
+  // Records rows the way the delivery path does, in the caller's transaction.
+  const messagingDelivery = {
+    recordIn: vi.fn(
+      async (
+        tx: { messagingOutbound: typeof messagingOutbound },
+        _lane: unknown,
+        rows: Array<Record<string, unknown>>,
+        options: { replace?: boolean } = {},
+      ) => {
+        if (options.replace)
+          await tx.messagingOutbound.deleteMany({
+            where: { idempotencyKey: { in: rows.map((row) => row.idempotencyKey as string) } },
+          });
+        await tx.messagingOutbound.createMany({ data: rows });
+        return [];
+      },
+    ),
+    send: vi.fn(async () => undefined),
+  };
   const deps = {
     prisma,
     jobs: { enqueue },
+    messagingDelivery,
     env: {
       defaultProvider: "fake",
       defaultModel: "fake-model",
@@ -290,6 +313,7 @@ function messagingDeps(
     actor,
     outboundRows,
     enqueue,
+    messagingDelivery,
     handler: new RPCHandler(createRouter(deps)),
   };
 }
@@ -299,6 +323,7 @@ async function call(
   actor: Actor,
   path: string,
   body: unknown = {},
+  signal?: AbortSignal,
 ) {
   const { response } = await handler.handle(
     new Request(`http://127.0.0.1/rpc/${path}`, {
@@ -306,7 +331,7 @@ async function call(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ json: body }),
     }),
-    { prefix: "/rpc", context: { actor } },
+    { prefix: "/rpc", context: { actor, signal } },
   );
   if (!response) throw new Error("no response");
   return response;
@@ -365,6 +390,37 @@ describe("messaging.link", () => {
         data: expect.objectContaining({ userId: "user-1", botId: "bot-2" }),
       }),
     );
+  });
+
+  it("does not replace a newer code when an old request is cancelled before issuance", async () => {
+    const { handler, actor, prisma } = messagingDeps({ identity: null });
+    const lookup = deferred<{ id: string; spaceId: string }>();
+    const findBot = vi.mocked(prisma.bot.findFirst);
+    findBot.mockReturnValueOnce(lookup.promise as ReturnType<typeof prisma.bot.findFirst>);
+    const controller = new AbortController();
+    const oldResponse = call(
+      handler,
+      actor,
+      "messaging/link/start",
+      { botId: "bot-1" },
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(findBot).toHaveBeenCalledTimes(1));
+    try {
+      controller.abort();
+      const newer = await call(handler, actor, "messaging/link/start", { botId: "bot-2" });
+      expect(newer.status).toBe(200);
+      expect(prisma.messagingLinkCode.create).toHaveBeenCalledTimes(1);
+    } finally {
+      lookup.resolve({ id: "bot-1", spaceId: "ws-1" });
+    }
+    const cancelled = await oldResponse;
+    expect(cancelled.status).not.toBe(200);
+    expect(prisma.messagingLinkCode.deleteMany).toHaveBeenCalledTimes(1);
+    expect(prisma.messagingLinkCode.create).toHaveBeenCalledTimes(1);
+    expect(prisma.messagingLinkCode.create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({ botId: "bot-2" }),
+    });
   });
 
   it("refuses to issue a code for an already-linked bot", async () => {
@@ -596,7 +652,7 @@ describe("messaging.connections", () => {
   });
 
   it("approves a pending incoming connection and notifies the requester", async () => {
-    const { handler, actor, prisma, outboundRows, enqueue } = messagingDeps();
+    const { handler, actor, prisma, outboundRows, messagingDelivery } = messagingDeps();
     const response = await call(handler, actor, "messaging/connections/respond", {
       connectionId: "ac-1",
       accept: true,
@@ -617,7 +673,7 @@ describe("messaging.connections", () => {
         identityId: "mi-9",
       }),
     ]);
-    expect(enqueue).toHaveBeenCalled();
+    expect(messagingDelivery.send).toHaveBeenCalledWith([{ identityId: "mi-9" }]);
   });
 
   it("rejects respond from the requester side", async () => {
@@ -671,7 +727,7 @@ describe("messaging.connections", () => {
     expect(prisma.messagingOutbound.deleteMany).toHaveBeenCalledWith({
       where: {
         idempotencyKey: "connect:bot-1:bot-9",
-        OR: [{ status: "pending" }, { status: "sent", providerHandle: null }],
+        OR: [{ status: { in: ["pending", "retry"] } }, { status: "sent", providerHandle: null }],
       },
     });
     expect(outboundRows).toEqual([
@@ -697,7 +753,7 @@ describe("messaging.connections", () => {
       kind: "dm",
       status: "sent",
       providerHandle: null,
-      body: "claimed by drain",
+      body: "claimed by a sender",
     });
     outboundRows.push({
       idempotencyKey: "connect:bot-1:bot-9-delivered",

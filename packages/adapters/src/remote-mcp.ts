@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import type { LookupFunction } from "node:net";
 import { isDeepStrictEqual } from "node:util";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPError,
@@ -10,6 +10,7 @@ import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.j
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ConnectorTool } from "@rakazo/adapter-kit";
 import {
+  ConnectionSetupError,
   ipVersion,
   isCloudMetadataAddress,
   isCloudMetadataHost,
@@ -22,9 +23,7 @@ import {
   normalizeHost,
 } from "@rakazo/contracts";
 import { cancelResponseBody } from "@rakazo/core";
-import type { Dispatcher } from "undici";
-import { Agent, EnvHttpProxyAgent, Pool } from "undici";
-import { composioToolBatch } from "./composio-batch.js";
+import { Agent } from "undici";
 import { sensitiveQueryParameter } from "./connector-http.js";
 import { combineSignals } from "./connector-safety.js";
 import { credentialDigest } from "./credential-digest.js";
@@ -33,6 +32,7 @@ import {
   mcpToolAppResourceUri,
   mcpToolVisibleToModel,
 } from "./mcp-app.js";
+import { createMcpClient } from "./mcp-output-schema.js";
 import { limitMcpResponseBody } from "./mcp-response-limit.js";
 import type { ResolvedAddress, ResolveHostname } from "./network-address.js";
 import {
@@ -40,6 +40,8 @@ import {
   egressRefused,
   withPinnedDnsLookup,
 } from "./network-address.js";
+import { composioToolBatch } from "./providers/integration/composio/composio-batch.js";
+import { createCheckedProxyDispatcher } from "./proxy-dispatcher.js";
 import { dispatcherFetch, fetchPairedWithDispatcher } from "./undici-fetch.js";
 
 const DEFAULT_MAX_MCP_TOOLS = 250;
@@ -84,6 +86,15 @@ export class RemoteMcpTransportError extends Error {
   }
 }
 
+/** The guarded fetch failed once it may have sent the request, so its headers may have reached
+ * the server. A refusal, or a failure that proves no connection was made, is a plain error. */
+export class RemoteRequestSentError extends Error {
+  constructor(message: string, options: { cause?: unknown } = {}) {
+    super(message, options);
+    this.name = "RemoteRequestSentError";
+  }
+}
+
 export class ConnectorRedirectError extends Error {
   constructor() {
     super("Connector redirects are not allowed");
@@ -113,7 +124,7 @@ export function mcpToolFields(
 
 export async function listRemoteMcpTools(options: RemoteMcpOptions): Promise<ConnectorTool[]> {
   const list = async (client: Client, signal: AbortSignal | undefined): Promise<ConnectorTool[]> =>
-    (await listMcpTools(client, { signal, timeout: MCP_TIMEOUT_MS })).map((tool) => ({
+    (await listMcpTools(client, { signal, timeout: MCP_TIMEOUT_MS })).tools.map((tool) => ({
       name: tool.name,
       description: tool.description ?? tool.title ?? tool.name,
       ...mcpToolFields(tool),
@@ -123,7 +134,7 @@ export async function listRemoteMcpTools(options: RemoteMcpOptions): Promise<Con
 }
 
 function newMcpClient(): Client {
-  return new Client(
+  return createMcpClient(
     { name: "rakazo", version: "0.1.0" },
     { capabilities: MCP_APP_CLIENT_CAPABILITIES },
   );
@@ -134,21 +145,27 @@ function positiveIntegerOrDefault(value: string | undefined, fallback: number): 
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** Follow `tools/list` cursors, bounded by the shared page and tool caps. Tools only a
- * server's own app may call are left out: the model never sees them. */
-export async function listMcpTools(client: Client, options: RequestOptions): Promise<Tool[]> {
+/** Follow `tools/list` cursors within the shared caps, with the shortest `ttlMs` any page sent.
+ * Tools only a server's own app may call are left out: the model never sees them. */
+export async function listMcpTools(
+  client: Client,
+  options: RequestOptions,
+): Promise<{ tools: Tool[]; ttlMs?: number }> {
   const maxTools = positiveIntegerOrDefault(process.env.MCP_MAX_TOOLS, DEFAULT_MAX_MCP_TOOLS);
   const maxPages = positiveIntegerOrDefault(process.env.MCP_MAX_PAGES, DEFAULT_MAX_MCP_PAGES);
   const tools: Tool[] = [];
+  let ttlMs: number | undefined;
   let cursor: string | undefined;
   for (let page = 0; page < maxPages && tools.length < maxTools; page += 1) {
     const result = await client.listTools(cursor ? { cursor } : undefined, options);
     const visible = result.tools.filter(mcpToolVisibleToModel);
     tools.push(...visible.slice(0, maxTools - tools.length));
+    if (typeof result.ttlMs === "number" && Number.isFinite(result.ttlMs))
+      ttlMs = Math.min(ttlMs ?? Number.POSITIVE_INFINITY, Math.max(0, result.ttlMs));
     cursor = result.nextCursor;
     if (!cursor) break;
   }
-  return tools;
+  return { tools, ttlMs };
 }
 
 /** Call through the guarded transport, optionally projecting before the final byte limit. */
@@ -597,7 +614,7 @@ async function closeMcpSession(session: ScopedMcpSession): Promise<void> {
 /** A saved MCP endpoint is stored and shown in plaintext, so its credentials belong in headers. */
 export function assertNoMcpEndpointCredential(endpoint: string): void {
   const name = sensitiveQueryParameter(new URL(endpoint));
-  if (name) throw new Error(`Put ${name} in a header instead of the server URL`);
+  if (name) throw new ConnectionSetupError(`Put ${name} in a header instead of the server URL`);
 }
 
 export async function assertSafeRemoteUrl(
@@ -617,16 +634,17 @@ async function inspectSafeRemoteUrl(
   try {
     url = new URL(value);
   } catch {
-    throw new Error("Connector URL is invalid");
+    throw new ConnectionSetupError("Connector URL is invalid");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Connector URL must use HTTPS");
+    throw new ConnectionSetupError("Connector URL must use HTTPS");
   }
-  if (url.username || url.password) throw new Error("Connector URL must not contain credentials");
-  if (url.hash) throw new Error("Connector URL must not contain a fragment");
+  if (url.username || url.password)
+    throw new ConnectionSetupError("Connector URL must not contain credentials");
+  if (url.hash) throw new ConnectionSetupError("Connector URL must not contain a fragment");
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   if (isCloudMetadataHost(hostname))
-    throw egressRefused(hostname, new Error("Connector URL targets a private host"));
+    throw egressRefused(hostname, new ConnectionSetupError("Connector URL targets a private host"));
   // Loopback is a private endpoint too: only the private-endpoint escape reaches it.
   const allowPrivate = policy.allowPrivateEndpoint === true;
   const privateHost = isPrivateRemoteMcpHostname(hostname);
@@ -641,14 +659,16 @@ async function inspectSafeRemoteUrl(
       ? " Set MCP_ALLOW_PRIVATE_ENDPOINT=true on the API and worker to allow it."
       : "";
   if (url.protocol === "http:" && !allowPrivate) {
-    throw new Error(
+    throw new ConnectionSetupError(
       settingHint ? `Connector URL must use HTTPS.${settingHint}` : "Connector URL must use HTTPS",
     );
   }
   if (privateHost && !allowPrivate) {
     throw egressRefused(
       hostname,
-      new Error(`Connector URL targets a private host${settingHint ? `.${settingHint}` : ""}`),
+      new ConnectionSetupError(
+        `Connector URL targets a private host${settingHint ? `.${settingHint}` : ""}`,
+      ),
     );
   }
   if (url.protocol === "http:" && isLocalhostOrLoopbackIp(hostname)) {
@@ -661,7 +681,7 @@ async function inspectSafeRemoteUrl(
     throw egressRefused(hostname, error);
   }
   if (url.protocol === "http:" && addresses.some((entry) => !isNonPublicAddress(entry.address))) {
-    throw new Error("Connector URL must use HTTPS");
+    throw new ConnectionSetupError("Connector URL must use HTTPS");
   }
   return { url, addresses };
 }
@@ -678,80 +698,16 @@ function literalAddresses(hostname: string): ResolvedAddress[] | undefined {
   return [{ address: hostname, family }];
 }
 
-/**
- * Honors HTTP(S)_PROXY / NO_PROXY. Every proxied request is tunneled with CONNECT to the checked
- * IP, so the proxy never resolves the hostname itself and DNS rebinding cannot reach past it.
- */
-function createRemoteDispatcher(resolve: ResolveHostname, policy: RemoteUrlPolicy): Dispatcher {
-  const { env } = process;
-  const proxy = env.http_proxy ?? env.HTTP_PROXY ?? env.https_proxy ?? env.HTTPS_PROXY;
-  if (proxy && !/^https?:\/\//i.test(proxy)) {
-    throw new Error("Only HTTP proxies are supported");
-  }
-  if (!proxy) {
-    return new Agent({ connect: { lookup: createSafeLookup(resolve, policy) } });
-  }
-  return new EnvHttpProxyAgent({
-    connect: { lookup: createSafeLookup(resolve, policy) },
-    proxyTunnel: true,
-    clientFactory: (origin, options) => {
-      const pool = new Pool(origin, options);
-      const connect = pool.connect.bind(pool) as (
-        options: Dispatcher.ConnectOptions,
-      ) => Promise<Dispatcher.ConnectData>;
-      return Object.assign(pool, {
-        connect: async (options: Dispatcher.ConnectOptions) => {
-          const authority = await checkedAuthority(options.path, resolve, policy);
-          return connect({
-            ...options,
-            path: authority,
-            headers: { ...(options.headers as Record<string, string>), host: authority },
-          });
-        },
-      });
-    },
-  });
-}
-
-async function checkedAuthority(
-  authority: string,
-  resolve: ResolveHostname,
-  policy: RemoteUrlPolicy,
-): Promise<string> {
-  const separator = authority.lastIndexOf(":");
-  const [first] = await resolvePublicHost(authority.slice(0, separator), resolve, policy);
-  const address = first?.address ?? "";
-  const host = ipVersion(address) === 6 ? `[${address}]` : address;
-  return `${host}${authority.slice(separator)}`;
-}
-
-async function resolvePublicHost(
-  host: string,
-  resolve: ResolveHostname,
-  policy: RemoteUrlPolicy,
-): Promise<ResolvedAddress[]> {
-  const hostname = host.replace(/^\[|\]$/g, "");
-  const addresses = await resolve(hostname);
-  try {
-    // The CONNECT tunnel bypasses createSafeLookup's own per-address check, so
-    // re-apply the same policy: loopback stays allowed under the private-endpoint escape.
-    if (policy.allowPrivateEndpoint === true && isLocalhostOrLoopbackIp(hostname)) {
-      assertLoopbackAddresses(addresses);
-    } else {
-      assertAllowedAddresses(addresses, policy);
-    }
-  } catch (error) {
-    throw egressRefused(hostname, error);
-  }
-  return addresses;
-}
-
 export function createSafeRemoteFetch(
   baseFetch?: typeof globalThis.fetch,
   resolve: ResolveHostname = resolveHostname,
   policy: RemoteUrlPolicy = {},
+  /** Called once the destination is checked, just before the request is sent; a throw stops it. */
+  beforeSend?: () => void,
 ): SafeRemoteFetch {
-  const dispatcher = createRemoteDispatcher(resolve, policy);
+  const dispatcher = createCheckedProxyDispatcher(resolve, (addresses, hostname) =>
+    assertSafeRemoteAddresses(addresses, hostname, policy),
+  );
   // Injected fetches are not given this Agent; they keep the original hostname
   // for TLS/SNI and pin TCP to the already-validated address through dns.lookup.
   const usePackageFetch = fetchPairedWithDispatcher(baseFetch) === dispatcherFetch;
@@ -760,6 +716,7 @@ export function createSafeRemoteFetch(
       throw new Error("Connector fetch requires a URL, not a Request");
     }
     const { url, addresses } = await inspectSafeRemoteUrl(String(input), resolve, policy);
+    beforeSend?.();
     let response: Response;
     try {
       const requestInit = { ...init, redirect: "manual" as const };
@@ -772,10 +729,7 @@ export function createSafeRemoteFetch(
             baseFetch!(url, requestInitWithHost(url, requestInit)),
           );
     } catch (error) {
-      const detail = transportFailureDetail(error);
-      throw new Error(`Could not reach ${url.host}${detail ? `: ${detail}` : ""}`, {
-        cause: error,
-      });
+      throw transportFailure(url, error);
     }
     if (response.status >= 300 && response.status < 400) {
       cancelResponseBody(response);
@@ -812,6 +766,8 @@ function assertPrivateAddresses(addresses: ResolvedAddress[]): void {
 export function createPrivateNetworkFetch(
   baseFetch?: typeof globalThis.fetch,
   resolve: ResolveHostname = resolveHostname,
+  /** As for `createSafeRemoteFetch`. */
+  beforeSend?: () => void,
 ): SafeRemoteFetch {
   const dispatcher = new Agent({
     connect: { lookup: createAddressCheckedLookup(resolve, assertPrivateAddresses) },
@@ -827,6 +783,7 @@ export function createPrivateNetworkFetch(
     }
     const addresses = await resolve(url.hostname.replace(/^\[|\]$/g, ""));
     assertPrivateAddresses(addresses);
+    beforeSend?.();
     let response: Response;
     try {
       const requestInit = { ...init, redirect: "manual" as const };
@@ -839,14 +796,11 @@ export function createPrivateNetworkFetch(
             baseFetch!(url, requestInitWithHost(url, requestInit)),
           );
     } catch (error) {
-      const detail = transportFailureDetail(error);
-      throw new Error(`Could not reach ${url.host}${detail ? `: ${detail}` : ""}`, {
-        cause: error,
-      });
+      throw transportFailure(url, error);
     }
     if (response.status >= 300 && response.status < 400) {
       cancelResponseBody(response);
-      throw new Error("Private fetch redirects are not allowed");
+      throw new RemoteRequestSentError("Private fetch redirects are not allowed");
     }
     return response;
   };
@@ -856,6 +810,63 @@ export function createPrivateNetworkFetch(
 }
 
 const MAX_CAUSE_DEPTH = 5;
+
+/** The server's certificate failed the client's own checks during the handshake. */
+export const TLS_CERTIFICATE_CODES: ReadonlySet<string> = new Set([
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_REVOKED",
+  "CERT_UNTRUSTED",
+  "CERT_SIGNATURE_FAILURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
+/**
+ * Codes that prove no connection was made, whichever call failed: the name did not resolve, the
+ * connection was not made in time, or the server's certificate failed the client's own checks
+ * during the handshake, before the request is written. A TLS record error may come once the
+ * session is up, so it isn't here.
+ */
+const NEVER_CONNECTED_CODES = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EAI_FAIL",
+  "ENODATA",
+  "UND_ERR_CONNECT_TIMEOUT",
+  ...TLS_CERTIFICATE_CODES,
+]);
+
+/** Any socket error, but only from the connect call: once connected the same codes say nothing. */
+const CONNECT_SYSCALL = "connect";
+
+/** By code and failed call only, through `cause` and every address a dual-stack connect tried. */
+function neverConnected(error: unknown, depth = 0): boolean {
+  if (depth >= MAX_CAUSE_DEPTH || !(error instanceof Error)) return false;
+  if (error instanceof AggregateError)
+    return (
+      error.errors.length > 0 && error.errors.every((inner) => neverConnected(inner, depth + 1))
+    );
+  const { code, syscall } = error as { code?: unknown; syscall?: unknown };
+  if (code !== undefined)
+    return (
+      typeof code === "string" && (NEVER_CONNECTED_CODES.has(code) || syscall === CONNECT_SYSCALL)
+    );
+  return neverConnected(error.cause, depth + 1);
+}
+
+/** A failure that may have sent the request counts as sent, so a use is never missed. */
+function transportFailure(url: URL, error: unknown): Error {
+  const detail = transportFailureDetail(error);
+  const message = `Could not reach ${url.host}${detail ? `: ${detail}` : ""}`;
+  return neverConnected(error)
+    ? new Error(message, { cause: error })
+    : new RemoteRequestSentError(message, { cause: error });
+}
 
 /** undici reports refused ports, unreachable hosts, DNS misses and TLS errors
  * alike as `TypeError: fetch failed` and keeps the actionable reason in `cause`
@@ -878,16 +889,25 @@ export function createSafeLookup(
   resolve: ResolveHostname = resolveHostname,
   policy: RemoteUrlPolicy = {},
 ): LookupFunction {
-  return createAddressCheckedLookup(resolve, (addresses, hostname) => {
-    if (
-      policy.allowPrivateEndpoint === true &&
-      isLocalhostOrLoopbackIp(hostname.replace(/^\[|\]$/g, ""))
-    ) {
-      assertLoopbackAddresses(addresses);
-      return;
-    }
-    assertAllowedAddresses(addresses, policy);
-  });
+  return createAddressCheckedLookup(resolve, (addresses, hostname) =>
+    assertSafeRemoteAddresses(addresses, hostname, policy),
+  );
+}
+
+function assertSafeRemoteAddresses(
+  addresses: ResolvedAddress[],
+  hostname: string,
+  policy: RemoteUrlPolicy,
+): void {
+  // Loopback stays allowed under the deployment owner's private-endpoint escape.
+  if (
+    policy.allowPrivateEndpoint === true &&
+    isLocalhostOrLoopbackIp(hostname.replace(/^\[|\]$/g, ""))
+  ) {
+    assertLoopbackAddresses(addresses);
+    return;
+  }
+  assertAllowedAddresses(addresses, policy);
 }
 
 /** Reserved local names (localhost, .local, .internal, Docker Desktop) and non-public literals. */
@@ -901,7 +921,7 @@ export function isPrivateRemoteMcpHostname(hostname: string): boolean {
 
 function assertLoopbackAddresses(addresses: ResolvedAddress[]): void {
   if (addresses.length === 0 || addresses.some((entry) => !isLoopbackAddress(entry.address))) {
-    throw new Error("Connector URL resolves to a private address");
+    throw new ConnectionSetupError("Connector URL resolves to a private address");
   }
 }
 
@@ -920,29 +940,29 @@ function isAlwaysBlockedAddress(address: string): boolean {
 
 function assertUnmixedAddresses(addresses: ResolvedAddress[]): void {
   if (addresses.length === 0) {
-    throw new Error("Connector URL resolves to a private address");
+    throw new ConnectionSetupError("Connector URL resolves to a private address");
   }
   if (addresses.some((entry) => isAlwaysBlockedAddress(entry.address))) {
-    throw new Error("Connector URL resolves to a private address");
+    throw new ConnectionSetupError("Connector URL resolves to a private address");
   }
   const hasPrivate = addresses.some((entry) => isNonPublicAddress(entry.address));
   const hasPublic = addresses.some((entry) => !isNonPublicAddress(entry.address));
   if (hasPrivate && hasPublic) {
-    throw new Error("Connector URL resolves to a private address");
+    throw new ConnectionSetupError("Connector URL resolves to a private address");
   }
 }
 
 /** Tailnet (*.ts.net) answers are private addresses too, so they need the private-endpoint escape. */
 function assertPublicAddresses(addresses: ResolvedAddress[]): void {
   if (addresses.length === 0) {
-    throw new Error("Connector URL resolves to a private address");
+    throw new ConnectionSetupError("Connector URL resolves to a private address");
   }
   if (
     addresses.some(
       (entry) => isCloudMetadataAddress(entry.address) || isNonPublicAddress(entry.address),
     )
   ) {
-    throw new Error("Connector URL resolves to a private address");
+    throw new ConnectionSetupError("Connector URL resolves to a private address");
   }
 }
 

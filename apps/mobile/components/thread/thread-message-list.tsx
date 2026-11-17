@@ -2,7 +2,7 @@ import type { ThreadItem } from "@rakazo/core";
 import { threadWindowMessages } from "@rakazo/core";
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useMemo, useRef } from "react";
-import type { ListRenderItem, ViewToken } from "react-native";
+import type { ListRenderItem, ListViewToken } from "react-native";
 import { ActivityIndicator, FlatList, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { mobileTokens } from "../../lib/appearance";
 import type { MobileMessage } from "../../lib/mobile-types";
@@ -96,14 +96,14 @@ export function ThreadMessageList({
     report?.(id !== undefined && visibleIds.current.has(id));
   };
   useEffect(reportWatched, [watchedMessageId]);
-  const onViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken<ThreadItem<MobileMessage>>[] }) => {
-      visibleIds.current = new Set(
-        viewableItems.flatMap(({ item }) => (item.kind === "message" ? [item.message.id] : [])),
-      );
-      reportWatched();
-    },
-  ).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ListViewToken[] }) => {
+    visibleIds.current = new Set(
+      viewableItems.flatMap(({ item }: { item: ThreadItem<MobileMessage> }) =>
+        item.kind === "message" ? [item.message.id] : [],
+      ),
+    );
+    reportWatched();
+  }).current;
 
   return (
     // The floor keeps a tall suggestion list from sliding under the transparent header.
@@ -125,7 +125,7 @@ export function ThreadMessageList({
               paddingBottom: bottomInset + 12 + 44 + 16,
               ...columnPadding,
             }}
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
             maintainVisibleContentPosition={messageListPosition}
             scrollEventThrottle={16}
             {...pinnedListHandlers}
@@ -154,15 +154,15 @@ export function ThreadMessageList({
             // This callback tracks every row input, including reply, reaction and highlight state.
             extraData={renderMessageRow}
             style={styles.list}
-            // Swiping down hides the keyboard; on iOS it follows the finger.
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            // On iOS a swipe down hides the keyboard, following the finger; Android keeps it open.
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
             // Inverted, so the bottom padding is the visual top, clear of the transparent header.
             contentContainerStyle={listContentStyle}
             // Follow changes to the recovery card while already at the newest content.
             maintainVisibleContentPosition={liveMessageListPosition}
             scrollEventThrottle={16}
             {...scroll.liveListHandlers}
-            ListFooterComponent={loadEarlierControl}
+            ListFooterComponent={loadEarlierControl ?? undefined}
             ListHeaderComponent={
               <View onLayout={() => scroll.performScroll(behavior.current.onLayout())}>
                 {errorNotice}

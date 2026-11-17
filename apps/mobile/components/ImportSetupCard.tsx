@@ -1,3 +1,4 @@
+import { useLingui } from "@lingui/react/macro";
 import type { AgentImportSetupItem, AgentImportSetupState } from "@rakazo/contracts";
 import {
   importSetupStateInput,
@@ -8,16 +9,16 @@ import {
 } from "@rakazo/core";
 import { typeScale } from "@rakazo/ui-tokens";
 import type { Href } from "expo-router";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useRouter } from "expo-router";
+import { useEffect, useRef } from "react";
 import type { ViewProps } from "react-native";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { rpc } from "../lib/api";
-import { useI18n } from "../lib/i18n";
 import type { ImportSetupBlock } from "../lib/import-setup";
 import { importSetupDetail } from "../lib/import-setup";
 import { threadCardWidth } from "../lib/message-presentation";
 import { native, useMobileTokens } from "../lib/native";
+import { rpcQuery } from "../lib/query";
+import { useScreenQuery } from "../lib/screen-query";
 import { useThreadReadOnly } from "../lib/thread-read-only";
 import { NativeActionButton } from "./native-action-button";
 import { NativeSymbol } from "./native-symbol";
@@ -49,29 +50,25 @@ export function ImportSetupCard({
   accessibilityActions?: ViewProps["accessibilityActions"];
   onAccessibilityAction?: ViewProps["onAccessibilityAction"];
 }) {
-  const { t } = useI18n();
+  const { t } = useLingui();
   const router = useRouter();
   const readOnly = useThreadReadOnly();
   const tokens = useMobileTokens();
   const { width: windowWidth } = useWindowDimensions();
-  const [state, setState] = useState<AgentImportSetupState | null>(null);
   const retired = isRetiredImportSetup(block);
-
   // Read again on return from a routine or model screen, and when the thread brings a new block.
-  useFocusEffect(
-    useCallback(() => {
-      if (retired) return;
-      let current = true;
-      rpc("bots/importSetupState", importSetupStateInput(botId, block))
-        .then((next) => {
-          if (current) setState(next);
-        })
-        .catch(() => undefined);
-      return () => {
-        current = false;
-      };
-    }, [botId, block, retired]),
+  const query = useScreenQuery(
+    rpcQuery("bots/importSetupState", importSetupStateInput(botId, block)),
+    { enabled: !retired, onForeground: false },
   );
+  const state: AgentImportSetupState | null = query.data ?? null;
+  const { refetch } = query;
+  const readBlock = useRef(block);
+  useEffect(() => {
+    if (readBlock.current === block) return;
+    readBlock.current = block;
+    if (!retired) void refetch();
+  }, [block, retired, refetch]);
 
   if (retired) return null;
   const cardStyle = [
@@ -93,7 +90,7 @@ export function ImportSetupCard({
           onAccessibilityAction={onAccessibilityAction}
           style={[styles.name, { color: tokens.foreground }]}
         >
-          {t("Setup complete")}
+          {t`Setup complete`}
         </Text>
       </View>
     );
@@ -117,7 +114,7 @@ export function ImportSetupCard({
         onAccessibilityAction={onAccessibilityAction}
         style={[styles.title, { color: tokens.foreground }]}
       >
-        {t("Finish setting up")}
+        {t`Finish setting up`}
       </Text>
       {block.items.map((item, index) => {
         const name = item.kind === "model" ? item.title : item.name;
@@ -125,7 +122,7 @@ export function ImportSetupCard({
         const href = readOnly ? null : target(item);
         const detail = [
           importSetupDetail(item),
-          isImportSetupVerifiable(item) ? "" : t("Check this yourself"),
+          isImportSetupVerifiable(item) ? "" : t`Check this yourself`,
         ]
           .filter(Boolean)
           .join(" · ");
@@ -140,7 +137,7 @@ export function ImportSetupCard({
               ) : null}
             </View>
             {done ? (
-              <View accessible accessibilityLabel={t("Done")}>
+              <View accessible accessibilityLabel={t`Done`}>
                 <NativeSymbol
                   ios="checkmark"
                   android="checkmark"
@@ -150,8 +147,8 @@ export function ImportSetupCard({
               </View>
             ) : href ? (
               <NativeActionButton
-                label={t("Open")}
-                accessibilityLabel={t("Open {name}", { name })}
+                label={t`Open`}
+                accessibilityLabel={t`Open ${name}`}
                 fill={false}
                 prominence="secondary"
                 size="compact"

@@ -1,9 +1,12 @@
+import { useLingui } from "@lingui/react/macro";
+import { useTimeout } from "@rakazo/chat-ui/hooks";
 import { normalizeRunError } from "@rakazo/core";
+import { translateRunError } from "@rakazo/i18n/run-error";
 import * as Clipboard from "expo-clipboard";
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { Platform, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useI18n } from "../lib/i18n";
+import { useUiLocale } from "../lib/i18n";
 import { useMobileTokens } from "../lib/native";
 import { runErrorDiagnostic, runErrorWhatHappened } from "../lib/run-error-presentation";
 import { NativeSymbol } from "./native-symbol";
@@ -13,7 +16,8 @@ import { SheetCloseButton } from "./sheet-close-button";
 
 /** Saved provider diagnostics do not identify the credential owner. */
 export function useRunError(details: string | null, includeReset = true) {
-  const { t, locale } = useI18n();
+  const { t } = useLingui();
+  const locale = useUiLocale();
   const [clockVersion, refreshClock] = useReducer((version: number) => version + 1, 0);
   const error = details
     ? normalizeRunError(
@@ -24,21 +28,19 @@ export function useRunError(details: string | null, includeReset = true) {
           if (message === "Your OpenRouter") return "OpenRouter";
           if (message === "Your OpenAI") return "OpenAI";
           if (message === "Your Anthropic") return "Anthropic";
-          if (message === "Your model provider") return t("Model provider");
-          return t(message, values);
+          if (message === "Your model provider") return t`Model provider`;
+          return translateRunError(message, values);
         },
         locale,
         Date.now(),
       )
     : null;
-  useEffect(() => {
-    if (!error?.resetAt) return;
-    const timer = setTimeout(
-      refreshClock,
-      Math.min(2_147_483_647, Math.max(0, error.resetAt - Date.now())),
-    );
-    return () => clearTimeout(timer);
-  }, [error?.resetAt, clockVersion]);
+  const resetAt = error?.resetAt;
+  const untilReset = useMemo(
+    () => (resetAt ? Math.min(2_147_483_647, Math.max(0, resetAt - Date.now())) : null),
+    [resetAt, clockVersion],
+  );
+  useTimeout(refreshClock, untilReset, clockVersion);
   return error;
 }
 
@@ -55,7 +57,8 @@ export function RunErrorSheet({
   /** The one action that fixes the failure. */
   action?: { label: string; onPress: () => void } | null;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useLingui();
+  const locale = useUiLocale();
   const tokens = useMobileTokens();
   const insets = useSafeAreaInsets();
   const { fontScale, height } = useWindowDimensions();
@@ -64,7 +67,7 @@ export function RunErrorSheet({
   useEffect(() => setTechnical(false), [details]);
   if (!error) return null;
   const diagnostic = runErrorDiagnostic(error, locale);
-  const whatHappened = runErrorWhatHappened(t, error);
+  const whatHappened = runErrorWhatHappened(error);
   const textStyle = { color: tokens.foreground, fontSize: 16, lineHeight: 24 };
   return (
     <RunErrorSheetContainer onClose={onClose} expanded={technical} label={summary ?? error.summary}>
@@ -126,17 +129,17 @@ export function RunErrorSheet({
           ) : null}
           {action ? <RunErrorAction label={action.label} onPress={action.onPress} /> : null}
           <RunErrorTextAction
-            label={t("Technical details")}
+            label={t`Technical details`}
             expanded={technical}
             onPress={() => setTechnical(!technical)}
           />
           {technical ? (
             <>
               {[
-                [t("Status"), diagnostic.status],
-                [t("Provider message"), diagnostic.message],
-                [t("Limit"), diagnostic.limit],
-                [t("Resets"), diagnostic.resets],
+                [t`Status`, diagnostic.status],
+                [t`Provider message`, diagnostic.message],
+                [t`Limit`, diagnostic.limit],
+                [t`Resets`, diagnostic.resets],
               ].map(([label, value]) =>
                 value ? (
                   <View key={label} style={{ gap: 4 }}>
@@ -148,7 +151,7 @@ export function RunErrorSheet({
                 ) : null,
               )}
               <RunErrorTextAction
-                label={t("Copy")}
+                label={t`Copy`}
                 onPress={() => {
                   void Clipboard.setStringAsync(details ?? "");
                 }}

@@ -2,11 +2,20 @@ import type {
   AgentImportNeed,
   AgentImportStatus,
   AgentImportWarning,
+  CreateRoutineInput,
   McpServerConfigInput,
 } from "@rakazo/contracts";
-import { isValidTimeZone, McpServerConfigInput as McpServerConfigSchema } from "@rakazo/contracts";
+import {
+  AGENT_IMPORT_MAX_FILE_LENGTH,
+  isValidTimeZone,
+  McpServerConfigInput as McpServerConfigSchema,
+} from "@rakazo/contracts";
+import type { GrokBot, RoutineTriggersAvailable } from "@rakazo/core";
 import {
   AGENT_IMPORT_PROVIDER_KEYS,
+  grokRoutineTrigger,
+  grokSkillNames,
+  looksLikeCredential,
   mcpServerImportable,
   nextCronDateAcrossStrict,
   normalizeImportProvider,
@@ -24,7 +33,7 @@ import { isCatalogProviderBaseUrl, listPiCatalog } from "./pi-models.js";
 type Json = Record<string, unknown>;
 type Skipped = {
   path: string;
-  reason: "builtin" | "unsupported" | "invalid_file";
+  reason: "builtin" | "unsupported" | "invalid_file" | "reconnect";
 };
 
 export type ImportedModel = {
@@ -43,13 +52,21 @@ export type ImportedMcpServer = {
   warnings: AgentImportWarning[];
   status: AgentImportStatus;
 };
+/** A routine's trigger, as `CreateRoutineInput` takes it: a schedule or an event. */
+export type ImportedRoutineTrigger = Pick<CreateRoutineInput, "crons"> &
+  Partial<
+    Pick<
+      CreateRoutineInput,
+      "webhookEnabled" | "githubEnabled" | "messageProvider" | "emailSenders"
+    >
+  >;
 export type ImportedRoutine = {
   id: string;
   title: string;
   content: string;
   name: string;
   prompt: string;
-  cron: string;
+  trigger: ImportedRoutineTrigger;
   /** The job's own IANA timezone, when it has one. */
   timezone: string | null;
   warnings: AgentImportWarning[];
@@ -68,6 +85,7 @@ export { normalizeImportProvider, parseDotEnv };
 const isObject = (value: unknown): value is Json =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
 /**
  * Reads the settings of an OpenClaw home or Hermes home. Key values are only read with
@@ -166,6 +184,141 @@ export function readAgentImportSettings(
   }
 
   return { model, mcpServers, routines, apiKeys, skipped, keyValues };
+}
+
+/** A path segment this long and mixed reads as a key: the address would carry it. */
+const KEY_LIKE_SEGMENT = /^(?=.*\d)(?=.*[a-zA-Z])[A-Za-z0-9_-]{24,}$/;
+
+/**
+ * A Grok Bot's routines and connected apps, from the export it wrote. It has no model to
+ * choose and the export never holds keys. A routine starts on its schedule or, when this server
+ * receives that event, on its event; any other stays in its memory note.
+ */
+export function readGrokBotImportSettings(
+  bot: GrokBot,
+  triggers: RoutineTriggersAvailable,
+): AgentImportSettings & { keyValues: Map<string, string> } {
+  const skipped: Skipped[] = [];
+  const skillNames = grokSkillNames(bot);
+  const routines: ImportedRoutine[] = [];
+  for (const [index, source] of bot.routines.entries()) {
+    const safeLabel = looksLikeCredential(source.name)
+      ? String(index + 1)
+      : source.name || String(index + 1);
+    // A routine the Bot could not read in full is named, so the user knows it was left behind.
+    if (!source.instruction) {
+      skipped.push({ path: `routines: ${safeLabel}`, reason: "unsupported" });
+      continue;
+    }
+    const trigger = grokRoutineTrigger(source, triggers);
+    if (!trigger) continue;
+    if (
+      [source.name, source.instruction, source.details, source.when, source.trigger].some(
+        looksLikeCredential,
+      )
+    ) {
+      skipped.push({ path: `routines: ${safeLabel}`, reason: "unsupported" });
+      continue;
+    }
+    const uses = source.skills.flatMap((name) => skillNames.get(name.toLowerCase()) ?? []);
+    // An event routine says what started it first, so the bot reads which channel, repository
+    // or senders it is for before the event it is given.
+    const scope = [source.details, source.when].filter(Boolean).map(oneLine).join("; ");
+    const instruction =
+      trigger.kind === "schedule"
+        ? [source.instruction, source.details, source.when].filter(Boolean).join("\n\n")
+        : `Trigger: ${source.trigger}${scope ? ` (${scope})` : ""}\n\n${source.instruction}`;
+    if (instruction.length > AGENT_IMPORT_MAX_FILE_LENGTH) {
+      skipped.push({ path: `routines: ${safeLabel}`, reason: "unsupported" });
+      continue;
+    }
+    const prompt = uses.length
+      ? `${instruction}\n\nUse these skills: ${uses.map((name) => `@${name}`).join(", ")}.`
+      : instruction;
+    if (trigger.kind === "schedule") {
+      const result = routine(
+        { name: source.name },
+        prompt,
+        trigger.cron,
+        source.timeZone,
+        false,
+        false,
+      );
+      if ("reason" in result) {
+        skipped.push({ path: `routines: ${safeLabel}`, reason: result.reason });
+      } else {
+        routines.push({ ...result, id: `routine:${index}` });
+      }
+      continue;
+    }
+    const name = (source.name || "Routine").slice(0, 80);
+    routines.push({
+      id: `routine:${index}`,
+      title: name,
+      name,
+      prompt,
+      trigger: {
+        crons: [],
+        ...(trigger.kind === "webhook" ? { webhookEnabled: true } : {}),
+        ...(trigger.kind === "git" ? { githubEnabled: true } : {}),
+        ...(trigger.kind === "message" ? { messageProvider: trigger.provider } : {}),
+        // Only mail from the owner starts it: anyone could write to the bot's address.
+        ...(trigger.kind === "email" ? { emailSenders: "owner" as const } : {}),
+      },
+      timezone: null,
+      warnings: [],
+      content: prompt,
+    });
+  }
+
+  const mcpServers: ImportedMcpServer[] = [];
+  for (const [index, app] of bot.apps.entries()) {
+    // A name or header name with a key in it never becomes server settings or preview text.
+    if ([app.name, ...app.headerNames].some(looksLikeCredential)) {
+      skipped.push({ path: `apps: ${index + 1}`, reason: "unsupported" });
+      continue;
+    }
+    const path = `apps: ${app.name}`;
+    if (!app.mcpUrl) {
+      skipped.push({ path, reason: "reconnect" });
+      continue;
+    }
+    let url: URL | null = null;
+    try {
+      url = new URL(app.mcpUrl);
+      if (
+        [...url.hostname.split("."), ...decodeURIComponent(url.pathname).split("/")].some((part) =>
+          KEY_LIKE_SEGMENT.test(part),
+        )
+      )
+        url = null;
+    } catch {
+      url = null;
+    }
+    // Only a remote address that carries no key can come over.
+    const server =
+      url?.protocol === "https:" &&
+      ["", "sse", "http", "streamable_http", "streamable-http"].includes(app.transport) &&
+      !url.search &&
+      !url.hash &&
+      !url.username &&
+      !url.password &&
+      !looksLikeCredential(app.mcpUrl)
+        ? mcpServer(
+            app.name,
+            {
+              url: app.mcpUrl,
+              transport: app.transport,
+              headers: Object.fromEntries(app.headerNames.map((name) => [name, ""])),
+            },
+            () => false,
+          )
+        : null;
+    if (server) mcpServers.push({ ...server, id: `mcp:${index}` });
+    else skipped.push({ path, reason: "unsupported" });
+  }
+
+  return { model: null, mcpServers, routines, apiKeys: [], skipped, keyValues: new Map() };
 }
 
 /**
@@ -434,7 +587,7 @@ function routine(
     title: name,
     name,
     prompt,
-    cron,
+    trigger: { crons: [cron] },
     timezone,
     warnings: [
       ...(droppedSettings ? (["dropped_settings"] as const) : []),

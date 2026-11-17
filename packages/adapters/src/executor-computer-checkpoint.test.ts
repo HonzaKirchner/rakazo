@@ -1,5 +1,6 @@
 import type { AssistantMessage, Model, ToolCall } from "@earendil-works/pi-ai";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
+import { createLogger, createTestSink, installLogger } from "@rakazo/logging";
 import { beforeEach, expect, it, vi } from "vitest";
 import type * as AutoReviewModule from "./auto-review.js";
 import type * as ComputerLifecycleModule from "./computer-lifecycle.js";
@@ -97,6 +98,8 @@ vi.mock("./run-model.js", async (importOriginal) => ({
 vi.mock("./computer-lifecycle.js", async (importOriginal) => ({
   ...(await importOriginal<typeof ComputerLifecycleModule>()),
   acquireComputerExecutionLease: async () => null,
+  waitForRunComputerLease: async () => null,
+  holdComputerExecutionLeaseForTakeover: async () => true,
   acquireDedicatedScreenLeaseFence: async (
     _prisma: unknown,
     input: { computerId: string; botId: string; runId: string },
@@ -229,6 +232,7 @@ function fixture(runId = "run-1") {
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     space: { findUnique: vi.fn(async () => null) },
     $queryRaw: vi.fn(async () => []),
+    $executeRaw: vi.fn(async () => 0),
     spaceMember: { findUnique: async () => ({ id: "member-1" }) },
     usageRecord: {
       createMany: vi.fn(async (_input: { data: Array<{ model: string }> }) => ({ count: 1 })),
@@ -308,6 +312,10 @@ function fixture(runId = "run-1") {
       })),
     },
     taughtSkill: { findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null) },
+    computer: {
+      findUnique: vi.fn(async () => null),
+      updateMany: vi.fn(async () => ({ count: 0 })),
+    },
     secret: { findMany: vi.fn(async () => []) },
     vaultCredential: { findMany: vi.fn(async () => []) },
     agentSkill: { findMany: vi.fn(async () => []) },
@@ -325,10 +333,15 @@ function fixture(runId = "run-1") {
     run.status = "waiting_input";
     return true;
   });
+  const pauseRunForTakeover = vi.fn(async () => {
+    run.status = "waiting_takeover";
+    return true;
+  });
   const finalizeRun = vi.fn(async () => ({ continuationRunId: null }));
   const runtime = new PiAgentRuntime();
   const runtimeRun = vi.fn(runtime.run.bind(runtime));
   const browserAct = vi.fn(async () => ({ ok: true }));
+  const browserPage = { available: true };
   const shutdown = new AbortController();
   const executor = createRunExecutor({
     shutdownSignal: shutdown.signal,
@@ -348,7 +361,10 @@ function fixture(runId = "run-1") {
       describe: () => ({ capabilities: { graphical: true } }),
       releaseScreen: vi.fn(async () => undefined),
     },
-    browser: { describe: () => ({ capabilities: { page: true } }), act: browserAct },
+    browser: {
+      describe: () => ({ capabilities: { page: browserPage.available } }),
+      act: browserAct,
+    },
     memory: { read: async () => ({ documents: [] }) },
     memoryProviders: { resolve: async () => null },
     events: {
@@ -356,6 +372,7 @@ function fixture(runId = "run-1") {
       append: vi.fn(async () => undefined),
       notify: vi.fn(async () => undefined),
       pauseRunForInput,
+      pauseRunForTakeover,
       finalizeRun,
     },
     jobs: { enqueue: vi.fn(async () => undefined) },
@@ -366,8 +383,10 @@ function fixture(runId = "run-1") {
     effects,
     choice,
     browserAct,
+    browserPage,
     runtimeRun,
     finalizeRun,
+    pauseRunForTakeover,
     prisma,
     shutdown,
     async run() {
@@ -377,13 +396,15 @@ function fixture(runId = "run-1") {
   };
 }
 
-function respond(target: Model<"openai-completions">, calls: ToolCall[] = []) {
+function respond(target: Model<"openai-completions">, calls: ToolCall[] = [], said?: string) {
   const message: AssistantMessage = {
     role: "assistant",
     api: target.api,
     provider: target.provider,
     model: target.id,
-    content: calls.length ? calls : [{ type: "text", text: "Done" }],
+    content: calls.length
+      ? [...(said ? [{ type: "text" as const, text: said }] : []), ...calls]
+      : [{ type: "text", text: "Done" }],
     stopReason: calls.length ? "toolUse" : "stop",
     timestamp: 1,
     usage: {
@@ -461,6 +482,94 @@ it("resumes an approved browser action followed by leave in the same assistant b
   expect(f.effects.filter((entry) => entry.kind === "browser_act")).toHaveLength(1);
   expect(fake.stream.mock.calls.map((call) => call[0].id)).toEqual(["main-a"]);
 });
+it("finishes the reply it had written before an approval, showing the approved step once", async () => {
+  const f = fixture();
+  const enter = {
+    type: "toolCall" as const,
+    id: "enter",
+    name: "enter_computer_mode",
+    arguments: { goal: "Click" },
+  };
+  const steps: Array<[ToolCall[], string?]> = [[[enter], "Opening the settings page."], [[click]]];
+  fake.stream.mockImplementation((target: Model<"openai-completions">) =>
+    respond(target, ...(steps.shift() ?? [[]])),
+  );
+  await f.run();
+  const checkpoint = f.effects.find((entry) => entry.kind === "runtime_checkpoint");
+  expect(JSON.parse(checkpoint!.result as string).reply).toMatchObject({
+    narrationSoFar: "Opening the settings page.",
+    toolCalls: [expect.objectContaining({ tool: "browser_act" })],
+  });
+  f.effects.find((entry) => entry.kind === "browser_act")!.status = "approved";
+  const resumed: ToolCall[][] = [[leave]];
+  fake.stream.mockImplementation((target: Model<"openai-completions">) =>
+    respond(target, resumed.shift()),
+  );
+  await f.run();
+  expect(f.browserAct).toHaveBeenCalledTimes(1);
+  expect(f.finalizeRun).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      outcome: "completed",
+      blocks: [
+        {
+          kind: "steps",
+          steps: [
+            expect.objectContaining({
+              label: "Browser act",
+              count: 1,
+              note: "Opening the settings page.",
+              outcomes: { succeeded: 1 },
+            }),
+          ],
+        },
+        { kind: "text", text: "Done" },
+      ],
+    }),
+  );
+});
+it("finishes the reply it had written before a takeover, showing the takeover step once", async () => {
+  const f = fixture();
+  const enter = {
+    type: "toolCall" as const,
+    id: "enter",
+    name: "enter_computer_mode",
+    arguments: { goal: "Sign in" },
+  };
+  const takeover = {
+    type: "toolCall" as const,
+    id: "takeover",
+    name: "request_takeover",
+    arguments: { reason: "Sign in" },
+  };
+  const steps: ToolCall[][] = [[enter], [click], [takeover]];
+  fake.stream.mockImplementation((target: Model<"openai-completions">) =>
+    respond(target, steps.shift()),
+  );
+  await f.run();
+  f.effects.find((entry) => entry.kind === "browser_act")!.status = "approved";
+  await f.run();
+  expect(f.pauseRunForTakeover).toHaveBeenCalledTimes(1);
+  const resumed: ToolCall[][] = [[leave]];
+  fake.stream.mockImplementation((target: Model<"openai-completions">) =>
+    respond(target, resumed.shift()),
+  );
+  await f.run();
+  expect(f.finalizeRun).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      outcome: "completed",
+      blocks: [
+        {
+          kind: "steps",
+          steps: [
+            expect.objectContaining({ label: "Browser act", count: 1 }),
+            expect.objectContaining({ label: "Request takeover", count: 1 }),
+          ],
+        },
+        { kind: "text", text: "Done" },
+      ],
+    }),
+  );
+});
 it("resolves saved A/C before unavailable current B and executes the pending effect once", async () => {
   const f = await paused();
   const key = f.effect.idempotencyKey;
@@ -514,6 +623,25 @@ it("does not dispatch an approved pending action or transition after cancellatio
   expect(f.browserAct).not.toHaveBeenCalled();
   expect(fake.stream).not.toHaveBeenCalled();
   expect(f.effect.status).toBe("approved");
+});
+it("retries without an error report while the paused action's tool is offline", async () => {
+  const f = await paused();
+  f.effect.status = "approved";
+  f.browserPage.available = false;
+  const sink = createTestSink();
+  installLogger(createLogger({ service: "test", sinks: [sink] }));
+  try {
+    await expect(f.run()).rejects.toMatchObject({
+      cause: { name: "PausedTurnToolsUnavailableError" },
+    });
+  } finally {
+    installLogger(createLogger({ service: "test", level: "off", sinks: [] }));
+  }
+  expect(sink.events.filter((event) => event.message === "run.setup_failed")).toEqual([
+    expect.objectContaining({ level: "warn" }),
+  ]);
+  expect(fake.stream).not.toHaveBeenCalled();
+  expect(f.browserAct).not.toHaveBeenCalled();
 });
 it.each([
   { provider: "anthropic" },

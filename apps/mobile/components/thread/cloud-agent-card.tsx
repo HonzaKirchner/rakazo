@@ -1,3 +1,4 @@
+import { useLingui } from "@lingui/react/macro";
 import { ChatMarkdown } from "@rakazo/chat-ui/native";
 import type { MessageBlock } from "@rakazo/contracts";
 import {
@@ -19,8 +20,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { mobileTokens } from "../../lib/appearance";
-import { transparentColor } from "../../lib/color";
-import { useI18n } from "../../lib/i18n";
+import { translucentColor } from "../../lib/color";
 import { useResolvedAppearance } from "../../lib/native";
 import type { UserBubble } from "../../lib/user-bubble";
 import { withUserBubble } from "../../lib/user-bubble";
@@ -89,24 +89,24 @@ export function CloudAgentCard({
 }) {
   const colorScheme = useResolvedAppearance();
   const tokens = withUserBubble(mobileTokens(), userBubble);
-  const { t } = useI18n();
+  const { t } = useLingui();
   const [open, setOpen] = useState(() => openCloudAgents.has(special.agentId));
   const toggle = () => {
     if (open) openCloudAgents.delete(special.agentId);
     else openCloudAgents.add(special.agentId);
     setOpen(!open);
   };
-  const title = special.title || t("Cloud agent");
+  const title = special.title || t`Cloud agent`;
   const statusLabel =
     special.status === "running"
-      ? t("running")
+      ? t`running`
       : special.status === "finished"
-        ? t("finished")
+        ? t`finished`
         : special.status === "cancelled"
-          ? t("cancelled")
+          ? t`cancelled`
           : special.status === "expired"
-            ? t("expired")
-            : t("failed");
+            ? t`expired`
+            : t`failed`;
   const running = special.status === "running";
   const tone =
     special.status === "finished"
@@ -143,7 +143,7 @@ export function CloudAgentCard({
       ) : null}
       {special.prompt ? (
         <View>
-          <Text style={label}>{t("Prompt")}</Text>
+          <Text style={label}>{t`Prompt`}</Text>
           <Text selectable style={value}>
             {special.prompt}
           </Text>
@@ -151,16 +151,16 @@ export function CloudAgentCard({
       ) : null}
       {special.repository ? (
         <View>
-          <Text style={label}>{t("Repository")}</Text>
+          <Text style={label}>{t`Repository`}</Text>
           <Text selectable style={value}>
             {special.repository}
           </Text>
         </View>
       ) : null}
-      {special.openPr ? <Text style={label}>{t("Opens a pull request")}</Text> : null}
+      {special.openPr ? <Text style={label}>{t`Opens a pull request`}</Text> : null}
       {special.imageCount ? (
         <View>
-          <Text style={label}>{t("Images")}</Text>
+          <Text style={label}>{t`Images`}</Text>
           <Text style={value}>{special.imageCount}</Text>
         </View>
       ) : null}
@@ -259,7 +259,7 @@ export function CloudAgentCard({
                       ...typeScale.footnote,
                     }}
                   >
-                    {t("Pull request")}
+                    {t`Pull request`}
                   </Text>
                 </Pressable>
               ) : special.branch ? (
@@ -278,7 +278,7 @@ export function CloudAgentCard({
             <Pressable
               onPress={() => Linking.openURL(agentHref).catch(() => undefined)}
               accessibilityRole="link"
-              accessibilityLabel={t("Open cloud agent")}
+              accessibilityLabel={t`Open cloud agent`}
               hitSlop={6}
               style={{
                 width: 34,
@@ -320,7 +320,7 @@ export function CloudAgentCard({
                 end: 0,
                 bottom: 16,
                 height: typeScale.secondary.lineHeight,
-                experimental_backgroundImage: `linear-gradient(to bottom, ${transparentColor(tokens.card)} 0%, ${tokens.card} 100%)`,
+                experimental_backgroundImage: `linear-gradient(to bottom, ${translucentColor(tokens.card, 0)} 0%, ${tokens.card} 100%)`,
               }}
             />
           </Pressable>

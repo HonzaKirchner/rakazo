@@ -38,7 +38,8 @@ function context(input: {
     secrets: [],
     trust: {
       loadApprovalModel: async () => ({
-        primary: input.primary === undefined ? { provider: "local", modelId: "small" } : input.primary,
+        primary:
+          input.primary === undefined ? { provider: "local", modelId: "small" } : input.primary,
         backups: [],
         primarySource: "member",
       }),

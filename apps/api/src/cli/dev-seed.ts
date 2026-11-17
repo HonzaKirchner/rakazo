@@ -275,7 +275,11 @@ async function post(route: string, body: unknown, spaceId?: string) {
   if (cookies.length) cookie = cookies.join("; ");
   return {
     response,
-    body: (await response.json().catch(() => null)) as Record<string, any> | null,
+    body: (await response.json().catch(() => null)) as {
+      message?: string;
+      error?: { message?: string };
+      json?: unknown;
+    } | null,
   };
 }
 

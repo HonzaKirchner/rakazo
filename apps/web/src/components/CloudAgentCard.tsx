@@ -159,10 +159,7 @@ function CardPreview({
         height: open ? fullHeight : Math.min(fullHeight ?? PREVIEW_HEIGHT, PREVIEW_HEIGHT),
       }}
     >
-      <div
-        ref={content}
-        className={cn("text-body", !open && "pointer-events-none")}
-      >
+      <div ref={content} className={cn("text-body", !open && "pointer-events-none")}>
         {children}
       </div>
       {overflows ? (

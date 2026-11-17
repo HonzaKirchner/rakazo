@@ -308,7 +308,7 @@ test("group chats share every context-menu action", async ({ page }, testInfo) =
   await page.reload();
 
   const sidebar = page.locator("aside").first();
-  const group = sidebar.getByRole("button", { name: /^Group menu/ });
+  const group = sidebar.getByRole("button", { name: /^Group menu(?! copy)/ });
   await group.click({ button: "right" });
   for (const action of [
     "Pin",
@@ -334,6 +334,11 @@ test("group chats share every context-menu action", async ({ page }, testInfo) =
 
   await group.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Unpin", exact: true }).click();
+  // Unpinning moves the row; a right-click mid-move opens no menu.
+  await expect(
+    sidebar.locator('[data-sidebar-group="pinned"]').filter({ hasText: "Group menu" }),
+  ).toHaveCount(0);
+  await expect(group).toBeVisible();
   await group.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Move to", exact: true }).hover();
   await page

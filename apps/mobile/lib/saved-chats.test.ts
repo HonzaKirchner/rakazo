@@ -27,9 +27,6 @@ const state = vi.hoisted(() => ({
   namespace: "ns-1",
 }));
 vi.mock("./artifact-cache-session", () => ({ artifactCacheSession: async () => state.namespace }));
-vi.mock("./api-server", () => ({}));
-vi.mock("./api-auth", () => ({}));
-vi.mock("./api-live", () => ({}));
 vi.mock("./api", () => ({
   currentApiBase: () => "https://api.example.test",
   selectedSpaceId: () => state.selection,
@@ -92,7 +89,7 @@ vi.mock("expo-file-system", () => {
     textSync() {
       return state.files.get(this.uri);
     }
-    write(value: string) {
+    writeSync(value: string) {
       state.files.set(this.uri, value);
       state.written.set(this.uri, state.written.size + 1);
     }
