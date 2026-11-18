@@ -13,11 +13,16 @@ export const CLOUD_AGENT_SPARK_STILL = "✻";
 /** Longest final reply kept from a remote agent. */
 export const CLOUD_AGENT_SUMMARY_MAX = 20_000;
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** A link safe to show: https, or plain http to this machine, where a local provider serves. */
 export function cloudAgentHttpsUrl(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password ? value : undefined;
+    const safe =
+      url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname));
+    return safe && !url.username && !url.password ? value : undefined;
   } catch {
     return undefined;
   }
@@ -54,6 +59,14 @@ export function cloudAgentBlockFromPayload(
 }
 
 type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
+
+/**
+ * Whether the agent is still being placed: launched here, but the provider has not taken it
+ * yet, so it has neither a run nor anywhere to be followed.
+ */
+export function cloudAgentStarting(block: CloudAgentBlock): boolean {
+  return block.status === "running" && !block.latestRunId && !block.url;
+}
 
 /** The newest cloud agent still running in these messages, with its message. Its card stays in view. */
 export function runningCloudAgent<M extends { blocks?: readonly MessageBlock[] }>(

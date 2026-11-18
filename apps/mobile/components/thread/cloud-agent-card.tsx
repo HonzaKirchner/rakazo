@@ -6,6 +6,7 @@ import {
   CLOUD_AGENT_SPARK_STILL,
   CLOUD_AGENT_SPARK_TICK_MS,
   cloudAgentHttpsUrl,
+  cloudAgentStarting,
   plainTextFromMarkdown,
 } from "@rakazo/core";
 import { typeScale } from "@rakazo/ui-tokens";
@@ -87,8 +88,7 @@ export function CloudAgentCard({
   const prHref = cloudAgentHttpsUrl(special.prUrl);
   const agentHref = cloudAgentHttpsUrl(special.url);
   const running = special.status === "running";
-  // Launched but not yet placed: the provider has not said where the agent can be followed.
-  const starting = running && !agentHref;
+  const starting = cloudAgentStarting(special);
   const statusLabel = starting
     ? t`starting`
     : running

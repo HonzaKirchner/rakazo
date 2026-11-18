@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChatMarkdown } from "@rakazo/chat-ui/web";
 import type { MessageBlock } from "@rakazo/contracts";
-import { CLOUD_AGENT_SPARK_FRAMES, cloudAgentHttpsUrl } from "@rakazo/core";
+import { CLOUD_AGENT_SPARK_FRAMES, cloudAgentHttpsUrl, cloudAgentStarting } from "@rakazo/core";
 import { cn } from "@rakazo/ui-web";
 import {
   Collapsible,
@@ -167,8 +167,7 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   const prHref = cloudAgentHttpsUrl(block.prUrl);
   const agentHref = cloudAgentHttpsUrl(block.url);
   const running = block.status === "running";
-  // Launched but not yet placed: the provider has not said where the agent can be followed.
-  const starting = running && !agentHref;
+  const starting = cloudAgentStarting(block);
   // The prompt shows as the preview until there is a reply, so it only repeats beside one.
   const hasDetails = Boolean(
     (block.prompt && block.summary) || block.repository || block.openPr || block.imageCount,

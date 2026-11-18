@@ -4,6 +4,7 @@ import { projectMessages } from "../messages/events.js";
 import {
   cloudAgentBlockFromPayload,
   cloudAgentHttpsUrl,
+  cloudAgentStarting,
   runningCloudAgent,
 } from "./cloud-agent.js";
 
@@ -78,6 +79,21 @@ describe("shared cloud agent projection", () => {
       "invalid",
     ])
       expect(cloudAgentHttpsUrl(url)).toBeUndefined();
+  });
+  it("shows a plain http link only to this machine", () => {
+    expect(cloudAgentHttpsUrl("http://localhost:4121/#desk/a")).toBe(
+      "http://localhost:4121/#desk/a",
+    );
+    expect(cloudAgentHttpsUrl("http://127.0.0.1:4121/")).toBe("http://127.0.0.1:4121/");
+    expect(cloudAgentHttpsUrl("http://localhost.example.test/")).toBeUndefined();
+  });
+  it("calls an agent starting only until the provider has taken it", () => {
+    const block = cloudAgentBlockFromPayload({ agentId: "agent", status: "running" });
+    expect(cloudAgentStarting(block)).toBe(true);
+    // Taken: it has a run, even where its link cannot be shown.
+    expect(cloudAgentStarting({ ...block, latestRunId: "run" })).toBe(false);
+    expect(cloudAgentStarting({ ...block, url: "https://example.test/agent" })).toBe(false);
+    expect(cloudAgentStarting({ ...block, status: "failed" })).toBe(false);
   });
 });
 

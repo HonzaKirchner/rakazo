@@ -142,7 +142,8 @@ async function reconcile(deps: CloudAgentDeps, agent: Polled, provider: CloudAge
           {
             ...snapshotData(snapshot),
             remoteId: snapshot.id,
-            launchRequest: {},
+            // Sent, so the images go; what the card shows of the launch stays.
+            launchRequest: { ...request, images: undefined },
             cancelRequested: abandoned || agent.cancelRequested,
           },
           abandoned,
