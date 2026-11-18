@@ -1,9 +1,15 @@
 import type { AdapterContext } from "@rakazo/adapter-kit";
 import { CloudAgentRequestRejected, CloudAgentRetryLater } from "@rakazo/adapter-kit";
 import { describe, expect, it } from "vitest";
+import {
+  ApifyRemotePlatformCloudAgentProvider,
+  apifyRemotePlatformAgentId,
+  NO_REPOSITORY,
+  parseApifyRemotePlatformUrl,
+  parseCoderWorkspaceUrl,
+} from "./apify-remote-platform-cloud-agent.js";
 import { cloudAgentsEnabled, createCloudAgentConnection } from "./cloud-agent-factory.js";
 import { resolveCloudAgentProvider } from "./cloud-agent-provider-env.js";
-import { CoderCloudAgentProvider, parseCoderWorkspaceUrl } from "./coder-cloud-agent.js";
 
 const ORIGIN = "https://coder.example.com";
 const WORKSPACE_URL = `${ORIGIN}/@alice/agents`;
@@ -36,6 +42,8 @@ class FakeCoder {
   dirty?: string;
   /** An older runner, whose `busy` says no more than that. */
   legacyBusy = false;
+  /** The repository each launch named, in order. */
+  readonly repositories: unknown[] = [];
   private sequence = 0;
 
   readonly fetch: typeof fetch = async (input, init) => {
@@ -66,6 +74,7 @@ class FakeCoder {
       if (agent) return Response.json(view(agent));
       const refused = this.refuse();
       if (refused) return refused;
+      this.repositories.push(body?.repository);
       const created: FakeAgent = {
         id: id!,
         title: String(body?.prompt).split("\n")[0]!,
@@ -125,7 +134,7 @@ function view(agent: FakeAgent, run = agent.runs.at(-1)!) {
 
 function create() {
   const coder = new FakeCoder();
-  const provider = new CoderCloudAgentProvider({
+  const provider = new ApifyRemotePlatformCloudAgentProvider({
     workspaceUrl: WORKSPACE_URL,
     token: "fake-token",
     fetch: coder.fetch,
@@ -133,7 +142,7 @@ function create() {
   return { coder, provider };
 }
 
-describe("coder cloud agent provider (offline)", () => {
+describe("apify-remote-platform cloud agent provider, on one Coder workspace (offline)", () => {
   it("waits for a stopped workspace without starting it and launches once it runs", async () => {
     const { coder, provider } = create();
     coder.workspaceStatus = "stopped";
@@ -181,6 +190,21 @@ describe("coder cloud agent provider (offline)", () => {
     expect((await provider.get(first.id, ctx, first.latestRunId)).status).toBe("finished");
     expect((await provider.cancel(first.id, ctx)).status).toBe("cancelled");
     expect((await provider.cancel(first.id, ctx)).status).toBe("cancelled");
+  });
+
+  it("names a placeholder repository for a launch that has none", async () => {
+    const { coder, provider } = create();
+    await provider.launch({ idempotencyKey: "agent-none", prompt: "How are you?" }, ctx);
+    coder.finish(apifyRemotePlatformAgentId("agent-none"));
+    await provider.launch(
+      {
+        idempotencyKey: "agent-named",
+        prompt: "Fix it",
+        repository: "https://github.com/example/demo",
+      },
+      ctx,
+    );
+    expect(coder.repositories).toEqual([NO_REPOSITORY, "https://github.com/example/demo"]);
   });
 
   it("waits for the one checkout instead of failing a refused launch or follow-up", async () => {
@@ -238,7 +262,7 @@ describe("coder cloud agent provider (offline)", () => {
   });
 });
 
-describe("coder cloud agent composition", () => {
+describe("apify-remote-platform cloud agent composition", () => {
   it("parses only Coder workspace URLs", () => {
     expect(parseCoderWorkspaceUrl(WORKSPACE_URL)).toEqual({
       origin: ORIGIN,
@@ -260,7 +284,7 @@ describe("coder cloud agent composition", () => {
 
   it("needs the workspace, a token and a Space, and survives token rotation", () => {
     const source = {
-      CLOUD_AGENT_PROVIDER: "coder",
+      CLOUD_AGENT_PROVIDER: "apify-remote-platform",
       CLOUD_AGENT_URL: WORKSPACE_URL,
       CLOUD_AGENT_API_KEY: "fake-token",
       CLOUD_AGENT_SPACE_ID: "test-space",
@@ -269,11 +293,119 @@ describe("coder cloud agent composition", () => {
       expect(resolveCloudAgentProvider({ ...source, [missing]: "" })).toBe("none");
     expect(resolveCloudAgentProvider({ ...source, CLOUD_AGENT_URL: "not a url" })).toBe("none");
     const connection = createCloudAgentConnection(source)!;
-    expect(connection.provider.describe().id).toBe("coder");
+    expect(connection.provider.describe().id).toBe("apify-remote-platform");
     expect(cloudAgentsEnabled(connection, "test-space")).toBe(true);
     expect(cloudAgentsEnabled(connection, "other-space")).toBe(false);
     expect(connection.key).not.toContain("fake-token");
     const rotated = createCloudAgentConnection({ ...source, CLOUD_AGENT_API_KEY: "new-token" })!;
     expect(rotated.key).toBe(connection.key);
+  });
+});
+
+describe("apify-remote-platform cloud agent provider (offline)", () => {
+  const SERVICE = "https://platform.example.com/api/tasks";
+
+  /** A platform that takes two launches to have a workspace ready, then answers as the runner does. */
+  function service() {
+    const requests: string[] = [];
+    let attempts = 0;
+    const agent = { id: "", title: "Fix", status: "running", runId: "run-1" };
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? "GET";
+      requests.push(`${method} ${url.pathname}`);
+      if (new Headers(init?.headers).get("authorization") !== "Bearer service-token")
+        return Response.json({ code: "unauthorized" }, { status: 401 });
+      if (new Headers(init?.headers).has("coder-session-token"))
+        throw new Error("Coder token sent");
+      const [id, runs, runId, action] = url.pathname.slice("/api/tasks/".length).split("/");
+      if (method === "PUT") {
+        attempts += 1;
+        if (attempts < 3)
+          return Response.json({ code: "preparing", reason: "starting" }, { status: 503 });
+        agent.id = id!;
+      }
+      if (id !== agent.id) return Response.json({ code: "not_found" }, { status: 404 });
+      if (method === "POST" && runs && !runId) agent.runId = "run-2";
+      if (action === "cancel") agent.status = "cancelled";
+      return Response.json({
+        ...agent,
+        ...(runId ? { runId } : {}),
+        url: `https://platform.example.com/#desk/${agent.id}`,
+      });
+    };
+    return { requests, fetchImpl };
+  }
+
+  it("asks again while a workspace is prepared, then follows the agent through the platform", async () => {
+    const { requests, fetchImpl } = service();
+    const provider = new ApifyRemotePlatformCloudAgentProvider({
+      workspaceUrl: `${SERVICE}/`,
+      token: "service-token",
+      fetch: fetchImpl,
+    });
+    const launch = () => provider.launch({ prompt: "Fix", idempotencyKey: "key" }, ctx);
+
+    for (let attempt = 0; attempt < 2; attempt += 1)
+      await expect(launch()).rejects.toMatchObject({
+        constructor: CloudAgentRetryLater,
+        reason: "unavailable",
+      });
+    const handle = await launch();
+    expect(handle).toMatchObject({
+      status: "running",
+      latestRunId: "run-1",
+      url: `https://platform.example.com/#desk/${handle.id}`,
+    });
+
+    expect((await provider.get(handle.id, ctx, "run-1")).latestRunId).toBe("run-1");
+    expect((await provider.reply(handle.id, { prompt: "More" }, ctx)).latestRunId).toBe("run-2");
+    expect((await provider.cancel(handle.id, ctx)).status).toBe("cancelled");
+    await expect(provider.get("missing", ctx)).rejects.toBeInstanceOf(CloudAgentRequestRejected);
+    expect(new Set(requests)).toEqual(
+      new Set([
+        `PUT /api/tasks/${handle.id}`,
+        `GET /api/tasks/${handle.id}`,
+        `GET /api/tasks/${handle.id}/runs/run-1`,
+        `POST /api/tasks/${handle.id}/runs`,
+        `POST /api/tasks/${handle.id}/runs/run-2/cancel`,
+        "GET /api/tasks/missing",
+      ]),
+    );
+
+    const stranger = new ApifyRemotePlatformCloudAgentProvider({
+      workspaceUrl: SERVICE,
+      token: "other",
+      fetch: fetchImpl,
+    });
+    await expect(stranger.get(handle.id, ctx)).rejects.toMatchObject({ reason: "credential" });
+  });
+
+  it("takes a task API URL where a workspace URL is not given", () => {
+    expect(parseApifyRemotePlatformUrl(`${SERVICE}/`)).toEqual({
+      origin: "https://platform.example.com",
+      path: "/api/tasks",
+    });
+    expect(parseApifyRemotePlatformUrl("http://127.0.0.1:4120/api/tasks")?.path).toBe("/api/tasks");
+    for (const value of [
+      undefined,
+      "not a url",
+      "http://platform.example.com/api/tasks",
+      "https://platform.example.com",
+      "https://platform.example.com/api/tasks?x=1",
+      "https://user:pass@platform.example.com/api/tasks",
+      WORKSPACE_URL,
+    ])
+      expect(parseApifyRemotePlatformUrl(value)).toBeUndefined();
+    const source = {
+      CLOUD_AGENT_PROVIDER: "apify-remote-platform",
+      CLOUD_AGENT_URL: SERVICE,
+      CLOUD_AGENT_API_KEY: "service-token",
+      CLOUD_AGENT_SPACE_ID: "test-space",
+    };
+    expect(resolveCloudAgentProvider(source)).toBe("apify-remote-platform");
+    expect(createCloudAgentConnection(source)!.provider.describe().id).toBe(
+      "apify-remote-platform",
+    );
   });
 });

@@ -292,7 +292,7 @@ the Integrations screen are a separate connection from this messaging surface.
 
 Cloud agents delegate a repository task to a hosted coding agent and track its result in the bot's chat. They are separate from the bot computer and its in-turn subagents. Web, Electron, and mobile show the same status and pull-request link.
 
-The default is `CLOUD_AGENT_PROVIDER=none`. Core workflows do not require Cursor, Coder or any other coding provider.
+The default is `CLOUD_AGENT_PROVIDER=none`. Core workflows do not require Cursor, apify-remote-platform or any other coding provider.
 
 ### Enable Cursor
 
@@ -328,31 +328,42 @@ The tools are `cloud_agent_launch`, `cloud_agent_status`, `cloud_agent_reply`, a
 
 Launch accepts a prompt, optional repository, images, and `openPr`. Raw environment variables are intentionally unsupported: passing secrets through model-generated tool arguments would persist them in ordinary history. Configure remote environment secrets directly with the provider.
 
-### Enable Coder
+### Enable apify-remote-platform
 
-Runs Claude Code in one of your own Coder workspaces, so the agent uses whatever Claude Code login the workspace has. The workspace runs [claude-relay](https://github.com/HonzaKirchner/claude-relay) and exposes it as an app with the slug `claude`, shared with the owner only. Rakazo reaches it on Coder's path route (`/@owner/workspace/apps/claude/...`), which Coder serves for subdomain apps too unless path apps are disabled. The runner serves this JSON API; every response is `{ id, title, status, runId, branch?, prUrl?, summary? }`, and errors are `{ code: "invalid" | "not_found" | "busy" }`:
+Runs Claude Code in Coder workspaces that an apify-remote-platform service manages: Rakazo sends each agent to the platform, which puts it in a workspace that is free, starting or creating one when none is, and passes everything on to the runner in that workspace. The agent uses whatever Claude Code login the workspace has.
 
-| Request | Effect |
-| --- | --- |
-| `PUT /agents/:id` | Creates the agent and its first run. Repeating it returns the existing agent. |
-| `GET /agents/:id` | Returns the latest run. |
-| `GET /agents/:id/runs/:runId` | Returns that run. |
-| `POST /agents/:id/runs` | Starts a follow-up. |
-| `POST /agents/:id/runs/:runId/cancel` | Answers once the run has stopped. |
-| `GET /ui/conversations/:id` | The agent's page, which each agent links to. |
+```dotenv
+CLOUD_AGENT_PROVIDER=apify-remote-platform
+CLOUD_AGENT_SPACE_ID=example-space-id
+CLOUD_AGENT_URL=https://platform.example.com/api/tasks
+CLOUD_AGENT_API_KEY=replace-with-the-platforms-tasks-token
+```
+
+`CLOUD_AGENT_URL` is the platform's task API, which speaks the runner's API described below without the workspace in its paths (`PUT <url>/:id`, `GET <url>/:id`, ...), and `CLOUD_AGENT_API_KEY` is the platform's tasks token, sent as a bearer token. Until a workspace is ready the platform answers `preparing`, and Rakazo resends the launch. Each agent links to the page the platform names for it.
+
+The provider can also go without the platform, straight to the runner in one of your own Coder workspaces. The workspace runs [claude-relay](https://github.com/HonzaKirchner/claude-relay) and exposes it as an app with the slug `claude`, shared with the owner only. Rakazo reaches it on Coder's path route (`/@owner/workspace/apps/claude/...`), which Coder serves for subdomain apps too unless path apps are disabled. The runner serves this JSON API; every response is `{ id, title, status, runId, branch?, prUrl?, summary? }`, and errors are `{ code: "invalid" | "not_found" | "busy" }`:
+
+| Request                               | Effect                                                                        |
+| ------------------------------------- | ----------------------------------------------------------------------------- |
+| `PUT /agents/:id`                     | Creates the agent and its first run. Repeating it returns the existing agent. |
+| `GET /agents/:id`                     | Returns the latest run.                                                       |
+| `GET /agents/:id/runs/:runId`         | Returns that run.                                                             |
+| `POST /agents/:id/runs`               | Starts a follow-up.                                                           |
+| `POST /agents/:id/runs/:runId/cancel` | Answers once the run has stopped.                                             |
+| `GET /ui/conversations/:id`           | The agent's page, which each agent links to.                                  |
 
 Every agent works in the workspace's one checkout on its own branch, so one run goes at a time across all agents. A launch or follow-up is refused with `busy`, creating nothing, while any agent's run is going (`reason: "locked"`, with the `conversation` whose run it is) or while the checkout has uncommitted changes that no run of that agent made (`reason: "dirty"`, with the `branch` it is on, for someone to commit, stash or discard in the workspace). Rakazo keeps the refused agent pending and resends it later, so a launch waits for the running agent rather than failing; only a follow-up refused by its own agent's run is observed instead of resent, since it may already be that run. The launch's `repository` is accepted but ignored: the work happens in the workspace's checkout.
 
 Then configure the API and worker:
 
 ```dotenv
-CLOUD_AGENT_PROVIDER=coder
+CLOUD_AGENT_PROVIDER=apify-remote-platform
 CLOUD_AGENT_SPACE_ID=example-space-id
 CLOUD_AGENT_URL=https://coder.example.com/@example-owner/example-workspace
 CLOUD_AGENT_API_KEY=replace-with-a-coder-token
 ```
 
-`CLOUD_AGENT_URL` is the workspace's page in Coder, and the token must belong to the workspace owner. Rakazo only calls the runner and never starts the workspace: while it is stopped or starting, launches and follow-ups wait and are resent once the runner answers, so keep the workspace running by other means. Agents are bound to the workspace rather than the token, so an expired token can be replaced without losing them.
+Here `CLOUD_AGENT_URL` is the workspace's page in Coder, and the token must belong to the workspace owner. Rakazo only calls the runner and never starts the workspace: while it is stopped or starting, launches and follow-ups wait and are resent once the runner answers, so keep the workspace running by other means. Agents are bound to the workspace rather than the token, so an expired token can be replaced without losing them.
 
 ### Recovery
 

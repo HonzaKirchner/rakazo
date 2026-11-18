@@ -1,4 +1,7 @@
-import { parseCoderWorkspaceUrl } from "./coder-cloud-agent.js";
+import {
+  parseApifyRemotePlatformUrl,
+  parseCoderWorkspaceUrl,
+} from "./apify-remote-platform-cloud-agent.js";
 
 /**
  * Empty / unknown / a provider without its connection becomes none so the API still boots and
@@ -15,11 +18,12 @@ export function resolveCloudAgentProvider(source: NodeJS.ProcessEnv = process.en
       ? "cursor"
       : "none";
   }
-  if (requested === "coder") {
-    return parseCoderWorkspaceUrl(source.CLOUD_AGENT_URL) &&
+  if (requested === "apify-remote-platform") {
+    return (parseCoderWorkspaceUrl(source.CLOUD_AGENT_URL) ||
+      parseApifyRemotePlatformUrl(source.CLOUD_AGENT_URL)) &&
       optional(source.CLOUD_AGENT_API_KEY) &&
       optional(source.CLOUD_AGENT_SPACE_ID)
-      ? "coder"
+      ? "apify-remote-platform"
       : "none";
   }
   // Soft-fall: do not throw at API boot for typos / future vendor names.

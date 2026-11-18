@@ -19,6 +19,8 @@ const UNREACHABLE_RETRY_MS = 15_000;
 const LOCKED_RETRY_MS = 30_000;
 /** A dirty checkout waits for a person to deal with it, so asking often buys nothing. */
 const DIRTY_RETRY_MS = 5 * 60_000;
+/** Sent as the repository of a launch that names none, so the receiving side always gets one. */
+export const NO_REPOSITORY = "no_repo";
 
 const agentSchema = z.object({
   id: z.string().min(1),
@@ -28,6 +30,7 @@ const agentSchema = z.object({
   branch: z.string().optional(),
   prUrl: z.string().optional(),
   summary: z.string().optional(),
+  url: z.string().url().optional(),
 });
 
 export interface CoderWorkspace {
@@ -50,7 +53,32 @@ export function parseCoderWorkspaceUrl(value: string | undefined): CoderWorkspac
   return { origin: url.origin, owner, workspaceAndAgent };
 }
 
-export interface CoderCloudAgentOptions {
+export interface ApifyRemotePlatformApi {
+  origin: string;
+  /** Where its task API starts, without a trailing slash. */
+  path: string;
+}
+
+/**
+ * Accepts the task API of an apify-remote-platform, which manages the workspaces itself, such
+ * as https://platform.example.com/api/tasks: anything that is not a workspace's own URL.
+ * Plain http only on this machine.
+ */
+export function parseApifyRemotePlatformUrl(
+  value: string | undefined,
+): ApifyRemotePlatformApi | undefined {
+  if (!value || !URL.canParse(value.trim())) return undefined;
+  const url = new URL(value.trim());
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) return undefined;
+  if (url.username || url.password || url.search || url.hash) return undefined;
+  const path = url.pathname.replace(/\/+$/, "");
+  if (!path || path.startsWith("/@")) return undefined;
+  return { origin: url.origin, path };
+}
+
+export interface ApifyRemotePlatformCloudAgentOptions {
+  /** The platform's task API, or one Coder workspace's URL to go without the platform. */
   workspaceUrl: string;
   token: string;
   fetch?: typeof fetch;
@@ -58,19 +86,31 @@ export interface CoderCloudAgentOptions {
 }
 
 /**
- * Runs agents through the Claude Code runner (claude-relay) in one Coder workspace,
- * using only the runner's API. Starting the workspace is left to whatever manages it.
+ * Runs agents through apify-remote-platform, which puts each agent in a Coder workspace of
+ * its choosing, starting or creating one when none is free, and passes everything on to the
+ * Claude Code runner (claude-relay) there. The platform speaks the runner's own API, so the
+ * provider can also be pointed at the runner in one Coder workspace, through Coder, without
+ * the platform; starting that workspace is then left to whatever manages it.
  */
-export class CoderCloudAgentProvider implements CloudAgentProvider {
-  private readonly workspace: CoderWorkspace;
+export class ApifyRemotePlatformCloudAgentProvider implements CloudAgentProvider {
+  private readonly workspace: CoderWorkspace | undefined;
+  private readonly service: ApifyRemotePlatformApi | undefined;
+  private readonly origin: string;
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
-  constructor(options: CoderCloudAgentOptions) {
+  constructor(options: ApifyRemotePlatformCloudAgentOptions) {
     const workspace = parseCoderWorkspaceUrl(options.workspaceUrl);
-    if (!workspace) throw new Error("CLOUD_AGENT_URL must be a Coder workspace URL");
+    const service = workspace ? undefined : parseApifyRemotePlatformUrl(options.workspaceUrl);
+    const origin = workspace?.origin ?? service?.origin;
+    if (!origin)
+      throw new Error(
+        "CLOUD_AGENT_URL must be the platform's task API URL or a Coder workspace URL",
+      );
     this.workspace = workspace;
+    this.service = service;
+    this.origin = origin;
     this.token = options.token.trim();
     if (!this.token) throw new Error("CLOUD_AGENT_API_KEY is required");
     this.fetchImpl = options.fetch ?? fetch;
@@ -79,7 +119,7 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
 
   describe() {
     return {
-      id: "coder",
+      id: "apify-remote-platform",
       contractVersion: "1",
       adapterVersion: "0.1.0",
       capabilities: { launch: true, reply: true, cancel: true, offline: false },
@@ -91,14 +131,14 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     context: AdapterContext,
   ): Promise<CloudAgentHandle> {
     // The runner returns the existing agent for a repeated id, so a lost response is safe to resend.
-    const id = coderAgentId(request.idempotencyKey);
+    const id = apifyRemotePlatformAgentId(request.idempotencyKey);
     const response = await this.app(
       "PUT",
       `/agents/${id}`,
       {
         prompt: request.prompt,
         ...(request.images?.length ? { images: request.images } : {}),
-        ...(request.repository ? { repository: request.repository } : {}),
+        repository: request.repository || NO_REPOSITORY,
         ...(request.openPr !== undefined ? { openPr: request.openPr } : {}),
       },
       request.signal ?? context.signal,
@@ -170,8 +210,11 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
       id: agent.id,
       title: agent.title || "Cloud agent",
       status: agent.status,
-      // The runner's page for this agent, behind the same Coder login as its API.
-      url: `${this.workspace.origin}${this.appPath(`/ui/conversations/${encodeURIComponent(agent.id)}`)}`,
+      // The runner's page for this agent, behind the same Coder login as its API; the
+      // platform says itself where the agent can be followed.
+      url: this.workspace
+        ? `${this.origin}${this.appPath(`/ui/conversations/${encodeURIComponent(agent.id)}`)}`
+        : (agent.url ?? `${this.origin}${this.service!.path}`),
       latestRunId: agent.runId,
       ...(agent.branch ? { branch: agent.branch } : {}),
       ...(agent.prUrl ? { prUrl: agent.prUrl } : {}),
@@ -192,25 +235,31 @@ export class CoderCloudAgentProvider implements CloudAgentProvider {
     if (code === "not_found") throw new CloudAgentRequestRejected("not_found");
     if (code === "invalid") throw new CloudAgentRequestRejected();
     if (code === "busy") return Busy.from(json as Record<string, unknown>);
+    // The platform is still getting a workspace ready for the agent: the same request, later.
+    if (code === "preparing") throw new CloudAgentRetryLater("unavailable", UNREACHABLE_RETRY_MS);
     if (typeof code === "string") throw new Error(`Cloud agent request failed (${status})`);
     // Coder answered for an app it could not reach: the workspace is stopped or still starting.
     throw new CloudAgentRetryLater("unavailable", UNREACHABLE_RETRY_MS);
   }
 
   private appPath(path: string) {
+    // The platform has no workspace in its paths, and calls an agent a task: `<api>/<id>/...`.
+    if (!this.workspace) return `${this.service!.path}${path.replace(/^\/agents/, "")}`;
     const { owner, workspaceAndAgent } = this.workspace;
     return `/@${encodeURIComponent(owner)}/${encodeURIComponent(workspaceAndAgent)}/apps/${APP_SLUG}${path}`;
   }
 
   private async request(method: string, path: string, body: unknown, signal: AbortSignal) {
     const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]);
-    const response = await this.fetchImpl(`${this.workspace.origin}${path}`, {
+    const response = await this.fetchImpl(`${this.origin}${path}`, {
       method,
       // Coder redirects an unauthenticated app request to its login page.
       redirect: "manual",
       signal: boundedSignal,
       headers: {
-        "Coder-Session-Token": this.token,
+        ...(this.workspace
+          ? { "Coder-Session-Token": this.token }
+          : { Authorization: `Bearer ${this.token}` }),
         Accept: "application/json",
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
       },
@@ -261,6 +310,6 @@ class Busy {
   }
 }
 
-export function coderAgentId(key: string) {
+export function apifyRemotePlatformAgentId(key: string) {
   return createHash("sha256").update(key).digest("hex").slice(0, 32);
 }

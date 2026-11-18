@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import type { CloudAgentProvider } from "@rakazo/adapter-kit";
+import { ApifyRemotePlatformCloudAgentProvider } from "./apify-remote-platform-cloud-agent.js";
 import { EmulatorCloudAgentProvider } from "./cloud-agent-emulator.js";
 import { resolveCloudAgentProvider } from "./cloud-agent-provider-env.js";
-import { CoderCloudAgentProvider } from "./coder-cloud-agent.js";
 import { CursorCloudAgentProvider } from "./providers/cloud-agent/cursor/cursor-cloud-agent.js";
 
 /** The composition root binds a credential to exactly one authorized Space. */
@@ -55,16 +55,16 @@ export function createCloudAgentConnection(
   if (kind === "emulator") {
     return { provider: new EmulatorCloudAgentProvider(), key: "emulator" };
   }
-  if (kind === "coder") {
+  if (kind === "apify-remote-platform") {
     const workspaceUrl = source.CLOUD_AGENT_URL!.trim();
     return {
-      provider: new CoderCloudAgentProvider({
+      provider: new ApifyRemotePlatformCloudAgentProvider({
         workspaceUrl,
         token: source.CLOUD_AGENT_API_KEY!,
       }),
       // Bound to the workspace, not the token: Coder tokens expire and get replaced,
       // and the agents live in the workspace whichever token reaches them.
-      key: `coder:${createHash("sha256").update(workspaceUrl).digest("hex")}`,
+      key: `apify-remote-platform:${createHash("sha256").update(workspaceUrl).digest("hex")}`,
       spaceId: source.CLOUD_AGENT_SPACE_ID!.trim(),
     };
   }

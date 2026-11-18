@@ -4,6 +4,7 @@ export * from "./agent-environment.js";
 export { formatAgentEnvironmentInstruction } from "./agent-environment.prompt.js";
 export * from "./agent-import-settings.js";
 export * from "./ai-consent.js";
+export * from "./apify-remote-platform-cloud-agent.js";
 export type { ApnsVoipConfig } from "./apns-voip.js";
 export {
   apnsVoipConfig,
@@ -77,7 +78,6 @@ export * from "./cloud-agent-provider-env.js";
 export * from "./cloud-agent-service.js";
 export * from "./cloud-agent-tools.js";
 export * from "./cloud-agent-tools-select.js";
-export * from "./coder-cloud-agent.js";
 export * from "./computer-browser.js";
 export * from "./computer-control.js";
 export * from "./computer-disk.js";
