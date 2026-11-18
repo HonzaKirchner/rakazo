@@ -6,7 +6,7 @@ import type { MessageBlock } from "@rakazo/contracts";
  */
 const SPARK_GLYPHS = ["·", "✢", "✳︎", "✶", "✻", "✽"];
 export const CLOUD_AGENT_SPARK_FRAMES = [...SPARK_GLYPHS, ...SPARK_GLYPHS.slice(1, -1).reverse()];
-export const CLOUD_AGENT_SPARK_TICK_MS = 120;
+export const CLOUD_AGENT_SPARK_TICK_MS = 160;
 /** The glyph shown in place of the animation when motion is reduced. */
 export const CLOUD_AGENT_SPARK_STILL = "✻";
 

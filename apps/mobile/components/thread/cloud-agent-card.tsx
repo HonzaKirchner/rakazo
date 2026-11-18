@@ -11,14 +11,7 @@ import {
 import { typeScale } from "@rakazo/ui-tokens";
 import { useEffect, useState } from "react";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Animated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
+import { useReducedMotion } from "react-native-reanimated";
 import { mobileTokens } from "../../lib/appearance";
 import { translucentColor } from "../../lib/color";
 import { useResolvedAppearance } from "../../lib/native";
@@ -29,34 +22,28 @@ import type { MessageActionProps } from "./message-bubble";
 
 type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
 
-/** A strip along the card's top edge that pulses while the agent works. */
-function RunningBar({ color }: { color: string }) {
-  const reducedMotion = useReducedMotion();
-  const opacity = useSharedValue(1);
-  useEffect(() => {
-    if (reducedMotion) return;
-    opacity.value = withRepeat(withTiming(0.25, { duration: 800 }), -1, true);
-    return () => cancelAnimation(opacity);
-  }, [opacity, reducedMotion]);
-  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
-  return <Animated.View style={[{ height: 3, backgroundColor: color }, style]} />;
-}
-
-/** A running agent's star, blooming and folding back; still when motion is reduced. */
-function Spark({ color }: { color: string }) {
+/**
+ * A running agent's star, blooming and folding back; still when motion is reduced. Until the
+ * agent has somewhere to be followed, it waits as the star's first frame.
+ */
+function Spark({ color, waiting }: { color: string; waiting: boolean }) {
   const reducedMotion = useReducedMotion();
   const [frame, setFrame] = useState(0);
   useEffect(() => {
-    if (reducedMotion) return;
+    if (reducedMotion || waiting) return;
     const timer = setInterval(
       () => setFrame((current) => (current + 1) % CLOUD_AGENT_SPARK_FRAMES.length),
       CLOUD_AGENT_SPARK_TICK_MS,
     );
     return () => clearInterval(timer);
-  }, [reducedMotion]);
+  }, [reducedMotion, waiting]);
   return (
-    <Text style={{ color, fontSize: 20, lineHeight: 24 }}>
-      {reducedMotion ? CLOUD_AGENT_SPARK_STILL : CLOUD_AGENT_SPARK_FRAMES[frame]}
+    <Text style={{ color, fontSize: 18, lineHeight: 22 }}>
+      {waiting
+        ? CLOUD_AGENT_SPARK_FRAMES[0]
+        : reducedMotion
+          ? CLOUD_AGENT_SPARK_STILL
+          : CLOUD_AGENT_SPARK_FRAMES[frame]}
     </Text>
   );
 }
@@ -97,8 +84,14 @@ export function CloudAgentCard({
     setOpen(!open);
   };
   const title = special.title || t`Cloud agent`;
-  const statusLabel =
-    special.status === "running"
+  const prHref = cloudAgentHttpsUrl(special.prUrl);
+  const agentHref = cloudAgentHttpsUrl(special.url);
+  const running = special.status === "running";
+  // Launched but not yet placed: the provider has not said where the agent can be followed.
+  const starting = running && !agentHref;
+  const statusLabel = starting
+    ? t`starting`
+    : running
       ? t`running`
       : special.status === "finished"
         ? t`finished`
@@ -107,17 +100,14 @@ export function CloudAgentCard({
           : special.status === "expired"
             ? t`expired`
             : t`failed`;
-  const running = special.status === "running";
   const tone =
     special.status === "finished"
       ? tokens.success
       : special.status === "failed"
         ? tokens.destructive
-        : special.status === "running"
+        : running && !starting
           ? tokens.foreground
           : tokens.mutedForeground;
-  const prHref = cloudAgentHttpsUrl(special.prUrl);
-  const agentHref = cloudAgentHttpsUrl(special.url);
   // Folded, the start of the reply, or of the prompt until there is a reply.
   const preview = open
     ? ""
@@ -175,15 +165,14 @@ export function CloudAgentCard({
         marginBottom: pinned ? 8 : 0,
         borderRadius: 20,
         backgroundColor: tokens.card,
-        borderWidth: running ? 1.5 : 1,
-        borderColor: running ? tokens.foreground : tokens.border,
-        boxShadow: running ? "0 8px 24px rgba(0, 0, 0, 0.16)" : "0 4px 16px rgba(0, 0, 0, 0.08)",
+        borderWidth: 1,
+        borderColor: tokens.border,
+        boxShadow: "0 4px 16px rgba(0, 0, 0, 0.08)",
       }}
     >
       <View style={{ borderRadius: 19, overflow: "hidden" }}>
-        {running ? (
-          <RunningBar color={tokens.foreground} />
-        ) : (
+        {/* A running agent shows only its star; the strip marks an ending. */}
+        {running ? null : (
           <View
             style={{
               height: 3,
@@ -210,11 +199,11 @@ export function CloudAgentCard({
               borderRadius: 12,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: running ? tokens.foreground : tokens.muted,
+              backgroundColor: tokens.muted,
             }}
           >
             {special.status === "running" ? (
-              <Spark color={tokens.background} />
+              <Spark color={tone} waiting={starting} />
             ) : (
               <NativeSymbol
                 ios={STATUS_SYMBOL[special.status].ios}

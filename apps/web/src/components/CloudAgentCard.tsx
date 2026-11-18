@@ -1,12 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChatMarkdown } from "@rakazo/chat-ui/web";
 import type { MessageBlock } from "@rakazo/contracts";
-import {
-  CLOUD_AGENT_SPARK_FRAMES,
-  CLOUD_AGENT_SPARK_STILL,
-  CLOUD_AGENT_SPARK_TICK_MS,
-  cloudAgentHttpsUrl,
-} from "@rakazo/core";
+import { CLOUD_AGENT_SPARK_FRAMES, cloudAgentHttpsUrl } from "@rakazo/core";
 import { cn } from "@rakazo/ui-web";
 import {
   Collapsible,
@@ -16,31 +11,12 @@ import {
 import { ArrowUpRight, Ban, Check, Clock, GitPullRequest, X } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Shimmer } from "./ai/primitives";
+import { Shimmer, Spark } from "./ai/primitives";
 
 type CloudAgentBlock = Extract<MessageBlock, { kind: "cloud_agent" }>;
 
-/** A running agent's star, blooming and folding back; still when motion is reduced. */
-function Spark() {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const timer = setInterval(
-      () => setFrame((current) => (current + 1) % CLOUD_AGENT_SPARK_FRAMES.length),
-      CLOUD_AGENT_SPARK_TICK_MS,
-    );
-    return () => clearInterval(timer);
-  }, []);
-  return (
-    <span className="text-heading2 leading-none">
-      <span className="motion-reduce:hidden">{CLOUD_AGENT_SPARK_FRAMES[frame]}</span>
-      <span className="hidden motion-reduce:inline">{CLOUD_AGENT_SPARK_STILL}</span>
-    </span>
-  );
-}
-
 const STATUS_STYLE = {
-  running: { icon: null, tile: "bg-foreground text-background", bar: "" },
+  running: { icon: null, tile: "bg-muted text-foreground", bar: "" },
   finished: { icon: Check, tile: "bg-success/15 text-success", bar: "bg-success" },
   failed: { icon: X, tile: "bg-destructive/15 text-destructive", bar: "bg-destructive" },
   cancelled: { icon: Ban, tile: "bg-muted text-muted-foreground", bar: "bg-muted-foreground/40" },
@@ -191,6 +167,8 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   const prHref = cloudAgentHttpsUrl(block.prUrl);
   const agentHref = cloudAgentHttpsUrl(block.url);
   const running = block.status === "running";
+  // Launched but not yet placed: the provider has not said where the agent can be followed.
+  const starting = running && !agentHref;
   // The prompt shows as the preview until there is a reply, so it only repeats beside one.
   const hasDetails = Boolean(
     (block.prompt && block.summary) || block.repository || block.openPr || block.imageCount,
@@ -201,41 +179,38 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
   const openCard = expandable ? () => toggle(true) : undefined;
   const status = STATUS_STYLE[block.status];
   const StatusIcon = status.icon;
-  const statusLabel =
-    block.status === "running" ? (
-      <Shimmer>
-        <Trans>running</Trans>
-      </Shimmer>
-    ) : block.status === "finished" ? (
-      <span className="text-success">
-        <Trans>finished</Trans>
-      </span>
-    ) : block.status === "failed" ? (
-      <span className="text-destructive">
-        <Trans>failed</Trans>
-      </span>
-    ) : block.status === "cancelled" ? (
-      <Trans>cancelled</Trans>
-    ) : (
-      <Trans>expired</Trans>
-    );
+  const statusLabel = starting ? (
+    <Shimmer>
+      <Trans>starting</Trans>
+    </Shimmer>
+  ) : running ? (
+    <Shimmer>
+      <Trans>running</Trans>
+    </Shimmer>
+  ) : block.status === "finished" ? (
+    <span className="text-success">
+      <Trans>finished</Trans>
+    </span>
+  ) : block.status === "failed" ? (
+    <span className="text-destructive">
+      <Trans>failed</Trans>
+    </span>
+  ) : block.status === "cancelled" ? (
+    <Trans>cancelled</Trans>
+  ) : (
+    <Trans>expired</Trans>
+  );
   return (
     <div
       className={cn(
-        "rk-marquee-host group/agent relative w-xl max-w-full overflow-hidden rounded-2xl bg-card text-body text-card-foreground ring-1",
-        running
-          ? "shadow-xl shadow-foreground/10 ring-foreground/20"
-          : "shadow-lg shadow-foreground/5 ring-foreground/10",
+        "rk-marquee-host group/agent relative w-xl max-w-full overflow-hidden rounded-2xl bg-card text-body text-card-foreground shadow-lg ring-1 shadow-foreground/5 ring-foreground/10",
       )}
       data-testid="cloud-agent-card"
     >
-      <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 overflow-hidden">
-        {running ? (
-          <span className="rk-indeterminate absolute inset-y-0 w-2/5 bg-foreground" />
-        ) : (
-          <span className={cn("absolute inset-0", status.bar)} />
-        )}
-      </span>
+      {/* A running agent shows only its star and its shimmering status; the bar marks an ending. */}
+      {running ? null : (
+        <span aria-hidden className={cn("absolute inset-x-0 top-0 h-0.5", status.bar)} />
+      )}
       <Collapsible open={open} onOpenChange={toggle}>
         {/* The title's button covers the whole header; the links sit above it. */}
         <div className="relative flex items-center gap-3 px-4 pt-4 pb-3">
@@ -243,7 +218,16 @@ export function CloudAgentCard({ block }: { block: CloudAgentBlock }) {
             aria-hidden
             className={cn("grid size-10 shrink-0 place-items-center rounded-xl", status.tile)}
           >
-            {StatusIcon ? <StatusIcon className="size-5" strokeWidth={2.25} /> : <Spark />}
+            {StatusIcon ? (
+              <StatusIcon className="size-5" strokeWidth={2.25} />
+            ) : starting ? (
+              // The star's first frame, waiting to bloom.
+              <span className="animate-pulse text-heading1 leading-none text-muted-foreground motion-reduce:animate-none">
+                {CLOUD_AGENT_SPARK_FRAMES[0]}
+              </span>
+            ) : (
+              <Spark className="text-heading3 leading-none" />
+            )}
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <CollapsibleTrigger

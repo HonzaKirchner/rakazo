@@ -422,6 +422,16 @@ const working: Scenario = {
     bot([
       {
         kind: "cloud_agent",
+        agentId: "cloud-0",
+        title: "Speed up the search index",
+        status: "running",
+        url: "",
+        prompt: "Profile the search index build and cut its slowest step.",
+      },
+    ]),
+    bot([
+      {
+        kind: "cloud_agent",
         agentId: "cloud-1",
         title: "Fix flaky calendar test",
         status: "running",
