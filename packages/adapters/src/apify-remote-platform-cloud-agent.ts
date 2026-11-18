@@ -210,10 +210,10 @@ export class ApifyRemotePlatformCloudAgentProvider implements CloudAgentProvider
       id: agent.id,
       title: agent.title || "Cloud agent",
       status: agent.status,
-      // The runner's page for this agent, behind the same Coder login as its API; the
-      // platform says itself where the agent can be followed.
+      // The runner has no pages: an agent sent straight to a workspace is followed on the
+      // workspace's own page in Coder. The platform says itself where its agents can be.
       url: this.workspace
-        ? `${this.origin}${this.appPath(`/ui/conversations/${encodeURIComponent(agent.id)}`)}`
+        ? `${this.origin}/@${encodeURIComponent(this.workspace.owner)}/${encodeURIComponent(this.workspace.workspaceAndAgent)}`
         : (agent.url ?? `${this.origin}${this.service!.path}`),
       latestRunId: agent.runId,
       ...(agent.branch ? { branch: agent.branch } : {}),

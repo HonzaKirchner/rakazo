@@ -350,7 +350,6 @@ The provider can also go without the platform, straight to the runner in one of 
 | `GET /agents/:id/runs/:runId`         | Returns that run.                                                             |
 | `POST /agents/:id/runs`               | Starts a follow-up.                                                           |
 | `POST /agents/:id/runs/:runId/cancel` | Answers once the run has stopped.                                             |
-| `GET /ui/conversations/:id`           | The agent's page, which each agent links to.                                  |
 
 Every agent works in the workspace's one checkout on its own branch, so one run goes at a time across all agents. A launch or follow-up is refused with `busy`, creating nothing, while any agent's run is going (`reason: "locked"`, with the `conversation` whose run it is) or while the checkout has uncommitted changes that no run of that agent made (`reason: "dirty"`, with the `branch` it is on, for someone to commit, stash or discard in the workspace). Rakazo keeps the refused agent pending and resends it later, so a launch waits for the running agent rather than failing; only a follow-up refused by its own agent's run is observed instead of resent, since it may already be that run. The launch's `repository` is accepted but ignored: the work happens in the workspace's checkout.
 
@@ -363,7 +362,7 @@ CLOUD_AGENT_URL=https://coder.example.com/@example-owner/example-workspace
 CLOUD_AGENT_API_KEY=replace-with-a-coder-token
 ```
 
-Here `CLOUD_AGENT_URL` is the workspace's page in Coder, and the token must belong to the workspace owner. Rakazo only calls the runner and never starts the workspace: while it is stopped or starting, launches and follow-ups wait and are resent once the runner answers, so keep the workspace running by other means. Agents are bound to the workspace rather than the token, so an expired token can be replaced without losing them.
+Here `CLOUD_AGENT_URL` is the workspace's page in Coder, which each agent links to (the runner has no pages of its own), and the token must belong to the workspace owner. Rakazo only calls the runner and never starts the workspace: while it is stopped or starting, launches and follow-ups wait and are resent once the runner answers, so keep the workspace running by other means. Agents are bound to the workspace rather than the token, so an expired token can be replaced without losing them.
 
 ### Recovery
 

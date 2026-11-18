@@ -157,7 +157,7 @@ describe("apify-remote-platform cloud agent provider, on one Coder workspace (of
       status: "running",
       title: "Add a README",
     });
-    expect(first.url).toBe(`${ORIGIN}${APP}/ui/conversations/${first.id}`);
+    expect(first.url).toBe(`${ORIGIN}/@alice/agents`);
     expect((await provider.launch(request, ctx)).id).toBe(first.id);
     expect(coder.agents.size).toBe(1);
   });
